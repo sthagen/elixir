@@ -2,7 +2,7 @@ env:
   CIRRUS_CLONE_DEPTH: 1
   ELIXIR_ASSERT_TIMEOUT: 2000
   ELIXIRC_OPTS: "--warnings-as-errors"
-  ERLC_OPTS: "+warning_as_errors"
+  ERLC_OPTS: "+warnings_as_errors"
   LANG: C.UTF-8
 
 
@@ -20,12 +20,11 @@ test_linux_task:
 
   matrix:
     - name: Linux, ${OTP_RELEASE}, Ubuntu 14.04
+      alias: Linux Stable
       matrix:
         - env:
-            OTP_RELEASE: OTP-22.1
             CHECK_POSIX_COMPLIANT: true
             CHECK_REPRODUCIBLE: true
-        - env:
             OTP_RELEASE: OTP-22.1
         - env:
             OTP_RELEASE: OTP-22.0
@@ -39,8 +38,11 @@ test_linux_task:
             OTP_RELEASE: OTP-21.0
 
     - name: Linux, OTP-${OTP_RELEASE}, development, Ubuntu 14.04
+      alias: Linux Development
       allow_failures: true
       skip_notifications: true
+      depends_on:
+        - Linux Stable
       matrix:
         - env:
             OTP_RELEASE: master
@@ -82,24 +84,25 @@ test_linux_task:
     if [ -n "$CHECK_REPRODUCIBLE" ]; then
       make check_reproducible
     else
-      echo "The format reproducibility of the build is only checked in the last stable Erlang/OTP version."
+      echo "The reproducibility of the build is only checked in the last stable Erlang/OTP version."
     fi
 
 
 test_windows_task:
   name: Windows, OTP-${OTP_RELEASE}, Windows Server 2019
+  alias: Windows Stable
 
   # don't cancel the task execution if it's master or a release branch
   auto_cancellation: $CIRRUS_BRANCH != 'master' && $CIRRUS_BRANCH !=~ 'v\d+\.\d+.*'
 
   matrix:
     - env:
-        OTP_RELEASE: 22.0
         OS_VERSION: 2019
+        OTP_RELEASE: 22.0
 
     - env:
-        OTP_RELEASE: 21.0.1
         OS_VERSION: 2019
+        OTP_RELEASE: 21.0.1
 
   windows_container:
     image: fertapric/elixir-ci:otp-win64-${OTP_RELEASE}
