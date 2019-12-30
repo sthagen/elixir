@@ -24,6 +24,10 @@ defmodule Mix.Release do
       first element is a module that implements the `Config.Provider` behaviour
       and `term` is the value given to it on `c:Config.Provider.init/1`
     * `:options` - a keyword list with all other user supplied release options
+    * `:overlays` - a list of extra files added to the release. If you have a custom
+      step adding extra files to a release, you can add these files to the `:overlays`
+      field so they are also considered on further commands, such as tar/zip. Each entry
+      in overlays is the relative path to the release root of each file
     * `:steps` - a list of functions that receive the release and returns a release.
       Must also contain the atom `:assemble` which is the internal assembling step.
       May also contain the atom `:tar` to create a tarball of the release.
@@ -40,6 +44,7 @@ defmodule Mix.Release do
     :erts_version,
     :config_providers,
     :options,
+    :overlays,
     :steps
   ]
 
@@ -147,12 +152,14 @@ defmodule Mix.Release do
       boot_scripts: %{start: start_boot, start_clean: start_clean_boot},
       config_providers: config_providers,
       options: opts,
+      overlays: [],
       steps: steps
     }
   end
 
   defp find_release(name, config) do
-    {name, opts} = lookup_release(name, config) || infer_release(config)
+    {name, opts_fun_or_list} = lookup_release(name, config) || infer_release(config)
+    opts = if is_function(opts_fun_or_list, 0), do: opts_fun_or_list.(), else: opts_fun_or_list
     {apps, opts} = Keyword.pop(opts, :applications, [])
 
     if apps == [] and Mix.Project.umbrella?(config) do
@@ -375,6 +382,7 @@ defmodule Mix.Release do
 
   It uses the following release options to customize its behaviour:
 
+    * `:reboot_system_after_config`
     * `:start_distribution_during_config`
     * `:prune_runtime_sys_config_after_boot`
 
@@ -383,10 +391,12 @@ defmodule Mix.Release do
   @spec make_sys_config(t, keyword(), Config.Provider.config_path()) ::
           :ok | {:error, String.t()}
   def make_sys_config(release, sys_config, config_provider_path) do
-    {sys_config, runtime?} = merge_provider_config(release, sys_config, config_provider_path)
+    {sys_config, runtime_config?} =
+      merge_provider_config(release, sys_config, config_provider_path)
+
     path = Path.join(release.version_path, "sys.config")
 
-    args = [runtime?, sys_config]
+    args = [runtime_config?, sys_config]
     format = "%% coding: utf-8~n%% RUNTIME_CONFIG=~s~n~tw.~n"
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, :io_lib.format(format, args), [:utf8])
@@ -406,18 +416,27 @@ defmodule Mix.Release do
   defp merge_provider_config(%{config_providers: []}, sys_config, _), do: {sys_config, false}
 
   defp merge_provider_config(release, sys_config, config_path) do
-    {extra_config, initial_config} = start_distribution(release)
+    {reboot?, extra_config, initial_config} = start_distribution(release)
     prune_after_boot = Keyword.get(release.options, :prune_runtime_sys_config_after_boot, false)
-    opts = [extra_config: initial_config, prune_after_boot: prune_after_boot]
+
+    opts = [
+      extra_config: initial_config,
+      prune_after_boot: prune_after_boot,
+      reboot_after_config: reboot?
+    ]
+
     init = Config.Provider.init(release.config_providers, config_path, opts)
-    {Config.Reader.merge(sys_config, [elixir: [config_providers: init]] ++ extra_config), true}
+    {Config.Reader.merge(sys_config, [elixir: [config_providers: init]] ++ extra_config), reboot?}
   end
 
   defp start_distribution(%{options: opts}) do
-    if Keyword.get(opts, :start_distribution_during_config, false) do
-      {[], []}
+    reboot? = Keyword.get(opts, :reboot_system_after_config, true)
+    early_distribution? = Keyword.get(opts, :start_distribution_during_config, false)
+
+    if not reboot? or early_distribution? do
+      {reboot?, [], []}
     else
-      {[kernel: [start_distribution: false]], [kernel: [start_distribution: true]]}
+      {true, [kernel: [start_distribution: false]], [kernel: [start_distribution: true]]}
     end
   end
 
