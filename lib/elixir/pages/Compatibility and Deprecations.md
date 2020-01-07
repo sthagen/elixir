@@ -8,12 +8,12 @@ Elixir applies bug fixes only to the latest minor branch. Security patches are a
 
 Elixir version | Support
 :------------- | :-----------------------------
-1.10           | Development
-1.9            | Bug fixes and security patches
+1.11           | Development
+1.10           | Bug fixes and security patches
+1.9            | Security patches only
 1.8            | Security patches only
 1.7            | Security patches only
 1.6            | Security patches only
-1.5            | Security patches only
 
 New releases are announced in the read-only [announcements mailing list](https://groups.google.com/group/elixir-lang-ann). All security releases [will be tagged with `[security]`](https://groups.google.com/forum/#!searchin/elixir-lang-ann/%5Bsecurity%5D%7Csort:date).
 
@@ -75,6 +75,8 @@ The first column is the version the feature was hard deprecated. The second colu
 
 Version | Deprecated feature                                  | Replaced by (available since)
 :-------| :-------------------------------------------------- | :---------------------------------------------------------------
+[v1.11] | `Supervisor.Spec.worker/3` and `Supervisor.Spec.supervisor/3` | The new child specs outlined in `Supervisor` (v1.5)
+[v1.11] | `Supervisor.start_child/2` and `Supervisor.terminate_child/2` | `DynamicSupervisor` (v1.6)
 [v1.10] | `Code.ensure_compiled?/1`                           | `Code.ensure_compiled/1` (v1.0)
 [v1.10] | `Code.load_file/2`                                  | `Code.require_file/2` (v1.0) or `Code.compile_file/2` (v1.7)
 [v1.10] | `Code.loaded_files/0`                               | `Code.required_files/0` (v1.7)
@@ -171,4 +173,5 @@ Version | Deprecated feature                                  | Replaced by (ava
 [v1.7]: https://github.com/elixir-lang/elixir/blob/v1.7/CHANGELOG.md#4-hard-deprecations
 [v1.8]: https://github.com/elixir-lang/elixir/blob/v1.8/CHANGELOG.md#4-hard-deprecations
 [v1.9]: https://github.com/elixir-lang/elixir/blob/v1.9/CHANGELOG.md#4-hard-deprecations
-[v1.10]: https://github.com/elixir-lang/elixir/blob/master/CHANGELOG.md#4-hard-deprecations
+[v1.10]: https://github.com/elixir-lang/elixir/blob/v1.10/CHANGELOG.md#4-hard-deprecations
+[v1.11]: https://github.com/elixir-lang/elixir/blob/master/CHANGELOG.md#4-hard-deprecations
