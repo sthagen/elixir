@@ -345,12 +345,21 @@ defmodule Mix do
   Returns the current shell.
 
   `shell/0` can be used as a wrapper for the current shell. It contains
-  conveniences for requesting information from the user, printing to the shell and so
-  forth. The Mix shell is swappable (see `shell/1`), allowing developers to use
-  a test shell that simply sends messages to the current process instead of
-  performing IO (see `Mix.Shell.Process`).
+  conveniences for requesting information from the user, printing to the
+  shell and so forth. The Mix shell is swappable (see `shell/1`), allowing
+  developers to use a test shell that simply sends messages to the current
+  process instead of performing IO (see `Mix.Shell.Process`).
 
   By default, this returns `Mix.Shell.IO`.
+
+  ## Examples
+
+      Mix.shell().info("Preparing to do something dangerous...")
+
+      if Mix.shell().yes?("Are you sure?") do
+        # do something dangerous
+      end
+
   """
   @spec shell() :: module
   def shell do
@@ -360,8 +369,31 @@ defmodule Mix do
   @doc """
   Sets the current shell.
 
-  After calling this function, `shell` becomes the shell that is returned by
-  `shell/0`.
+  As an argument you may pass `Mix.Shell.IO`, `Mix.Shell.Process`,
+  `Mix.Shell.Quiet`, or any module that implements the `Mix.Shell`
+  behaviour.
+
+  After calling this function, `shell` becomes the shell that is
+  returned by `shell/0`.
+
+  ## Examples
+
+      iex> Mix.shell(Mix.Shell.IO)
+      :ok
+
+  You can use `shell/0` and `shell/1` to temporarily switch shells,
+  for example, if you want to run a Mix Task that normally produces
+  a lot of output:
+
+      shell = Mix.shell()
+      Mix.shell(Mix.Shell.Quiet)
+
+      try do
+        Mix.Task.run("noisy.task")
+      after
+        Mix.shell(shell)
+      end
+
   """
   @spec shell(module) :: :ok
   def shell(shell) do

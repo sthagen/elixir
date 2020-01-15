@@ -1,13 +1,21 @@
 defmodule Mix.Task do
   @moduledoc """
-  A simple module that provides conveniences for creating,
-  loading and manipulating tasks.
+  Provides conveniences for creating, loading, and manipulating Mix tasks.
 
-  A Mix task can be defined by simply using `Mix.Task`
-  in a module starting with `Mix.Tasks.` and defining
-  the `run/1` function:
+  A Mix task can be defined by using `Mix.Task` in a module whose name
+  starts with `Mix.Tasks.` and which defines the `run/1` function.
+  Typically, task modules live inside the `lib/mix/tasks/` directory,
+  and their file names use dot separators instead of underscores
+  (e.g. `deps.clean.ex`) - although ultimately the file name is not
+  relevant.
 
+  For example:
+
+      # lib/mix/tasks/echo.ex
       defmodule Mix.Tasks.Echo do
+        @moduledoc "Printed when the user requests `mix help echo`"
+        @shortdoc "Echoes arguments"
+
         use Mix.Task
 
         @impl Mix.Task
@@ -16,8 +24,25 @@ defmodule Mix.Task do
         end
       end
 
-  The `run/1` function will receive a list of all arguments passed
-  to the command line.
+  The command name will correspond to the portion of the module
+  name following `Mix.Tasks.`. For example, a module name of
+  `Mix.Tasks.Deps.Clean` corresponds to a task name of `deps.clean`.
+
+  The `run/1` function will receive a list of all command line
+  arguments passed, according to the user's terminal.
+
+  For example, if the `args` in the above `echo` task were
+  inspected, you might see something like this:
+
+      mix echo 'A and B' C --test
+      ["A and B", "C", "--test"]
+
+  Define the `@shortdoc` attribute if you wish to make the task
+  publicly visible on `mix help`. Omit this attribute if you do
+  not want your task to be listed on `mix help`.
+
+  After creating a task module, run `mix compile` and any public
+  tasks should become visible to `mix help`.
 
   ## Attributes
 
