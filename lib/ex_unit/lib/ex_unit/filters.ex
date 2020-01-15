@@ -35,6 +35,7 @@ defmodule ExUnit.Filters do
 
         line_numbers =
           reversed_line_numbers
+          |> Enum.reject(&invalid_line_number?/1)
           |> Enum.reverse()
           |> Enum.map(&{:line, &1})
 
@@ -44,6 +45,17 @@ defmodule ExUnit.Filters do
           |> Enum.join(":")
 
         {path, line_numbers}
+    end
+  end
+
+  defp invalid_line_number?(arg) do
+    case Integer.parse(arg) do
+      {num, ""} when num > 0 ->
+        false
+
+      _ ->
+        IO.warn("invalid line number given as ExUnit filter: #{arg}", [])
+        true
     end
   end
 
