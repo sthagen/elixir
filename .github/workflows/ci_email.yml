@@ -1,17 +1,13 @@
-on: check_suite
+on:
+  check_suite:
+    types: [completed]
 name: CI email
 jobs:
   sendEmail:
     name: Send email
     runs-on: ubuntu-latest
-    steps:
-    - name: Send email
-      # Source: https://github.com/elixir-lang/elixir-ci
-      uses: docker://fertapric/elixir-ci-email:latest
+    steps: 
+    - run: echo "CI conclusion: $SUITE_CONCLUSION" && false
       env:
-        APP_NAME: Cirrus CI
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        MAIL_FROM: ci@elixir-lang.org
-        MAIL_HOST: smtp.sendgrid.net
-        MAIL_PASSWORD: ${{ secrets.CI_EMAIL_PASSWORD }}
-        MAIL_USERNAME: ${{ secrets.CI_EMAIL_USERNAME }}
+        SUITE_CONCLUSION: ${{ github.event.check_suite.conclusion }}
+      if: github.event.check_suite.conclusion != 'neutral' && github.event.check_suite.conclusion != 'success'
