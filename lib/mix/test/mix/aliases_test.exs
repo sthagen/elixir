@@ -54,9 +54,9 @@ defmodule Mix.AliasesTest do
     assert Mix.Task.rerun("help", []) == "Hello, World!"
     assert_received {:mix_shell, :info, ["mix test" <> _]}
 
-    # Arguments are passed to the recursive task and not the liast one.
+    # Arguments are passed to the recursive task and not the last one.
     assert ExUnit.CaptureIO.capture_io(fn ->
-      Mix.Task.rerun("help", ["test"]) == "Hello, World!"
-    end) =~ "mix test"
+             Mix.Task.rerun("help", ["test"]) == "Hello, World!"
+           end) =~ "mix test"
   end
 end
