@@ -32,7 +32,7 @@ defmodule Macro do
       #=> 1
 
   So far they behave the same, as we are passing an integer as argument.
-  But what happens when we pass an expresion:
+  But what happens when we pass an expression:
 
       macro_inspect(1 + 2)
       #=> {:+, [line: 3], [1, 2]}
@@ -965,7 +965,7 @@ defmodule Macro do
 
   defp bitpart_to_string({:"::", meta, [left, right]} = ast, fun) do
     result =
-      if meta[:inferred_binary_type] do
+      if meta[:inferred_bitstring_spec] do
         to_string(left, fun)
       else
         op_to_string(left, fun, :"::", :left) <>
