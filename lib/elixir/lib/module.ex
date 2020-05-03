@@ -252,6 +252,10 @@ defmodule Module do
   in case any of the external resources change, see for example:
   [`mix compile.elixir`](https://hexdocs.pm/mix/Mix.Tasks.Compile.Elixir.html).
 
+  If the external resource does not exist, the module still has
+  a dependency on it, causing the module be recompiled as soon
+  as the file is added.
+
   ### `@file`
 
   Changes the filename used in stacktraces for the function or macro that
@@ -1054,7 +1058,7 @@ defmodule Module do
       when is_atom(module) and def_kind in [:def, :defp, :defmacro, :defmacrop] do
     assert_not_compiled!(__ENV__.function, module, @extra_error_msg_definitions_in)
     {set, _} = data_tables_for(module)
-    :lists.concat(:ets.match(set, {{:def, :"$1"}, def_kind, :_, :_, :_, :_}))
+    :lists.append(:ets.match(set, {{:def, :"$1"}, def_kind, :_, :_, :_, :_}))
   end
 
   @doc """
