@@ -131,7 +131,49 @@ defmodule Mix.ReleaseTest do
       end
     end
 
-    test "uses the latest version of an app if there are multiple versions", context do
+    test "uses the locked version of an app", context do
+      in_tmp(context.test, fn ->
+        # install newer version of the app in the custom erts
+        custom_erts_path = Path.join([File.cwd!(), "erts-#{@erts_version}"])
+        File.cp_r!(@erts_source, custom_erts_path)
+
+        ebin_dir = Path.expand(Path.join([custom_erts_path, "..", "lib", "cowboy-2.0.0", "ebin"]))
+        File.mkdir_p!(ebin_dir)
+        app_resource = "{application,cowboy,[{vsn,\"2.0.0\"},{modules,[]},{applications,[]}]}."
+        File.write!(Path.join(ebin_dir, "cowboy.app"), app_resource)
+
+        # install older version of the app in the project dependencies
+        project_path = Path.join(File.cwd!(), "project")
+        build_path = Path.join(project_path, "_build")
+        ebin_dir = Path.join([build_path, "dev", "lib", "cowboy", "ebin"])
+        File.mkdir_p!(ebin_dir)
+        app_resource = "{application,cowboy,[{vsn,\"1.1.2\"},{modules,[]},{applications,[]}]}."
+        File.write!(Path.join(ebin_dir, "cowboy.app"), app_resource)
+
+        File.mkdir_p!(Path.join([project_path, "deps", "cowboy"]))
+        lockfile = Path.join(project_path, "mix.lock")
+
+        File.write!(lockfile, ~S"""
+        %{
+          "cowboy": {:hex, :cowboy, "1.1.2"},
+        }
+        """)
+
+        app_config =
+          config(
+            deps: [{:cowboy, "~> 1.0", path: "deps/cowvoy"}],
+            releases: [demo: [include_erts: custom_erts_path, applications: [cowboy: :permanent]]]
+          )
+
+        Mix.Project.in_project(:mix, project_path, app_config, fn _ ->
+          Code.prepend_path(ebin_dir)
+          release = from_config!(nil, app_config, [])
+          assert release.applications.cowboy[:vsn] == '1.1.2'
+        end)
+      end)
+    end
+
+    test "uses the latest version of an app if it is not locked", context do
       in_tmp(context.test, fn ->
         test_erts_dir = Path.join(File.cwd!(), "erts-#{@erts_version}")
         test_libs_dir = Path.join(File.cwd!(), "lib")
@@ -717,5 +759,18 @@ defmodule Mix.ReleaseTest do
       config_path: tmp_path("mix_release/config/config.exs")
     ]
     |> Keyword.merge(extra)
+  end
+
+  defmodule ReleaseApp do
+    def project do
+      [
+        app: :mix,
+        version: "0.1.0",
+        build_path: tmp_path("mix_release/_build"),
+        build_per_environment: true,
+        config_path: tmp_path("mix_release/config/config.exs")
+      ]
+      |> Keyword.merge(Process.get(:project))
+    end
   end
 end
