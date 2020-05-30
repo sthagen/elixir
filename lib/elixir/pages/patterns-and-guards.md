@@ -282,7 +282,7 @@ not_nil_head?(["some_value", "another_value"])
 Even though the head of the list is not `nil`, the first clause for `not_nil_head?/1` fails because the expression does not evaluate to `true`, but to `"some_value"`, therefore triggering the second clause which returns `false`. To make the guard behave correctly, you must ensure that the guard evaluates to `true`, like so:
 
 ```elixir
-def not_nil_head?(term) when head != nil, do: true
+def not_nil_head?([head | _]) when head != nil, do: true
 def not_nil_head?(_), do: false
 
 not_nil_head?(["some_value", "another_value"])
@@ -382,11 +382,6 @@ Check.empty?({})
 
 In the examples above, we have used the match operator (`=`) and function clauses to showcase patterns and guards respectively. Here is the list of the built-in constructs in Elixir that support patterns and guards.
 
-  * the match operator (`=`) (exceptionally does not support guards):
-
-    ```elixir
-    {:ok, binary} = File.read("some/file")
-    ```
 
   * `match?/2`:
 
@@ -430,7 +425,16 @@ In the examples above, we have used the match operator (`=`) and function clause
 
   * [`try`](`try/1`) supports patterns and guards on `catch` and `else`
 
+  * [`receive`](`receive/1`) supports patterns and guards to match on the received messages.
+
   * custom guards can also be defined with `defguard/1` and `defguardp/1`. A custom guard can only be defined based on existing guards.
+  
+  
+Note that the match operator (`=`) does *not* support guards:
+
+    ```elixir
+    {:ok, binary} = File.read("some/file")
+    ```
 
 ## Custom patterns and guards expressions
 
