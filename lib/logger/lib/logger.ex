@@ -109,7 +109,7 @@ defmodule Logger do
 
       Logger.error("We have a problem", [error_code: :pc_load_letter])
 
-  In your app's logger configuration, you would need to whitelist the
+  In your app's logger configuration, you would need to include the
   `:error_code` key and you would need to include `$metadata` as part of
   your log format template:
 
@@ -653,7 +653,7 @@ defmodule Logger do
 
   ## Examples
 
-      iex> Logger.compare_levels(:debug, :warn)
+      iex> Logger.compare_levels(:debug, :warning)
       :lt
       iex> Logger.compare_levels(:error, :info)
       :gt
@@ -870,7 +870,7 @@ defmodule Logger do
   end
 
   @doc false
-  def __should_log__(level, module) when level in @levels do
+  def __should_log__(level, module) do
     level = Logger.Handler.elixir_level_to_erlang_level(level)
 
     if enabled?(self()) and :logger.allow(level, module) do
@@ -891,18 +891,17 @@ defmodule Logger do
     end
   end
 
-  def __do_log__(level, msg, metadata)
-      when is_msg(msg) and is_map(metadata) do
-    :logger.macro_log(%{}, level, msg, add_elixir_domain(metadata))
-  end
+  def __do_log__(level, msg, metadata) when level in @levels and is_map(metadata) do
+    if is_msg(msg) do
+      :logger.macro_log(%{}, level, msg, add_elixir_domain(metadata))
+    else
+      # TODO: Remove this branch in Elixir v2.0
+      IO.warn(
+        "passing #{inspect(msg)} to Logger is deprecated, expected a map, a keyword list, a binary, or an iolist"
+      )
 
-  # TODO: Remove that in Elixir v2.0
-  def __do_log__(level, other, metadata) do
-    IO.warn(
-      "passing #{inspect(other)} to Logger is deprecated, expected a map, a keyword list, a binary, or an iolist"
-    )
-
-    :logger.macro_log(%{}, level, to_string(other), add_elixir_domain(metadata))
+      :logger.macro_log(%{}, level, to_string(msg), add_elixir_domain(metadata))
+    end
   end
 
   defp add_elixir_domain(%{domain: domain} = metadata) when is_list(domain) do

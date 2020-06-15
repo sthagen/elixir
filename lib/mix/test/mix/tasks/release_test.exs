@@ -353,6 +353,7 @@ defmodule Mix.Tasks.ReleaseTest do
                  node: release_node("runtime_config"),
                  protocols_consolidated?: true,
                  release_name: "runtime_config",
+                 release_mode: "embedded",
                  release_node: "runtime_config",
                  release_vsn: "0.1.0",
                  runtime_config: {:ok, :was_set},

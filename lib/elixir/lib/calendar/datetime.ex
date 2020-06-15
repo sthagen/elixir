@@ -77,6 +77,7 @@ defmodule DateTime do
         }
 
   @unix_days :calendar.date_to_gregorian_days({1970, 1, 1})
+  @seconds_per_day 24 * 60 * 60
 
   @doc """
   Returns the current datetime in UTC.
@@ -91,6 +92,158 @@ defmodule DateTime do
   @spec utc_now(Calendar.calendar()) :: t
   def utc_now(calendar \\ Calendar.ISO) do
     System.os_time() |> from_unix!(:native, calendar)
+  end
+
+  @doc """
+  Builds a datetime from date and time structs.
+
+  It expects a time zone to put the `DateTime` in.
+  If the time zone is not passed it will default to `"Etc/UTC"`,
+  which always succeeds. Otherwise, the `DateTime` is checked against the time zone database
+  given as `time_zone_database`. See the "Time zone database"
+  section in the module documentation.
+
+  ## Examples
+
+      iex> DateTime.new(~D[2016-05-24], ~T[13:26:08.003], "Etc/UTC")
+      {:ok, ~U[2016-05-24 13:26:08.003Z]}
+
+  When the datetime is ambiguous - for instance during changing from summer
+  to winter time - the two possible valid datetimes are returned. First the one
+  that happens first, then the one that happens after.
+
+      iex> {:ambiguous, first_dt, second_dt} = DateTime.new(~D[2018-10-28], ~T[02:30:00], "Europe/Copenhagen", FakeTimeZoneDatabase)
+      iex> first_dt
+      #DateTime<2018-10-28 02:30:00+02:00 CEST Europe/Copenhagen>
+      iex> second_dt
+      #DateTime<2018-10-28 02:30:00+01:00 CET Europe/Copenhagen>
+
+  When there is a gap in wall time - for instance in spring when the clocks are
+  turned forward - the latest valid datetime just before the gap and the first
+  valid datetime just after the gap.
+
+      iex> {:gap, just_before, just_after} = DateTime.new(~D[2019-03-31], ~T[02:30:00], "Europe/Copenhagen", FakeTimeZoneDatabase)
+      iex> just_before
+      #DateTime<2019-03-31 01:59:59.999999+01:00 CET Europe/Copenhagen>
+      iex> just_after
+      #DateTime<2019-03-31 03:00:00+02:00 CEST Europe/Copenhagen>
+
+  Most of the time there is one, and just one, valid datetime for a certain
+  date and time in a certain time zone.
+
+      iex> {:ok, datetime} = DateTime.new(~D[2018-07-28], ~T[12:30:00], "Europe/Copenhagen", FakeTimeZoneDatabase)
+      iex> datetime
+      #DateTime<2018-07-28 12:30:00+02:00 CEST Europe/Copenhagen>
+
+  """
+  @doc since: "1.11.0"
+  @spec new(Date.t(), Time.t(), Calendar.time_zone(), Calendar.time_zone_database()) ::
+          {:ok, t}
+          | {:ambiguous, t, t}
+          | {:gap, t, t}
+          | {:error,
+             :incompatible_calendars | :time_zone_not_found | :utc_only_time_zone_database}
+  def new(
+        date,
+        time,
+        time_zone \\ "Etc/UTC",
+        time_zone_database \\ Calendar.get_time_zone_database()
+      )
+
+  def new(%Date{calendar: calendar} = date, %Time{calendar: calendar} = time, "Etc/UTC", _db) do
+    %{year: year, month: month, day: day} = date
+    %{hour: hour, minute: minute, second: second, microsecond: microsecond} = time
+
+    datetime = %DateTime{
+      calendar: calendar,
+      year: year,
+      month: month,
+      day: day,
+      hour: hour,
+      minute: minute,
+      second: second,
+      microsecond: microsecond,
+      std_offset: 0,
+      utc_offset: 0,
+      zone_abbr: "UTC",
+      time_zone: "Etc/UTC"
+    }
+
+    {:ok, datetime}
+  end
+
+  def new(date, time, time_zone, time_zone_database) do
+    with {:ok, naive_datetime} <- NaiveDateTime.new(date, time) do
+      from_naive(naive_datetime, time_zone, time_zone_database)
+    end
+  end
+
+  @doc """
+  Builds a datetime from date and time structs, raising on errors.
+
+  It expects a time zone to put the `DateTime` in.
+  If the time zone is not passed it will default to `"Etc/UTC"`,
+  which always succeeds. Otherwise, the DateTime is checked against the time zone database
+  given as `time_zone_database`. See the "Time zone database"
+  section in the module documentation.
+
+  ## Examples
+
+      iex> DateTime.new!(~D[2016-05-24], ~T[13:26:08.003], "Etc/UTC")
+      ~U[2016-05-24 13:26:08.003Z]
+
+  When the datetime is ambiguous - for instance during changing from summer
+  to winter time - an error will be raised.
+
+      iex> DateTime.new!(~D[2018-10-28], ~T[02:30:00], "Europe/Copenhagen", FakeTimeZoneDatabase)
+      ** (ArgumentError) cannot build datetime with ~D[2018-10-28] and ~T[02:30:00] because such instant is ambiguous in time zone Europe/Copenhagen as there is an overlap between #DateTime<2018-10-28 02:30:00+02:00 CEST Europe/Copenhagen> and #DateTime<2018-10-28 02:30:00+01:00 CET Europe/Copenhagen>
+
+  When there is a gap in wall time - for instance in spring when the clocks are
+  turned forward - an error will be raised.
+
+      iex> DateTime.new!(~D[2019-03-31], ~T[02:30:00], "Europe/Copenhagen", FakeTimeZoneDatabase)
+      ** (ArgumentError) cannot build datetime with ~D[2019-03-31] and ~T[02:30:00] because such instant does not exist in time zone Europe/Copenhagen as there is a gap between #DateTime<2019-03-31 01:59:59.999999+01:00 CET Europe/Copenhagen> and #DateTime<2019-03-31 03:00:00+02:00 CEST Europe/Copenhagen>
+
+  Most of the time there is one, and just one, valid datetime for a certain
+  date and time in a certain time zone.
+
+      iex> datetime = DateTime.new!(~D[2018-07-28], ~T[12:30:00], "Europe/Copenhagen", FakeTimeZoneDatabase)
+      iex> datetime
+      #DateTime<2018-07-28 12:30:00+02:00 CEST Europe/Copenhagen>
+
+  """
+  @doc since: "1.11.0"
+  @spec new!(Date.t(), Time.t(), Calendar.time_zone(), Calendar.time_zone_database()) :: t
+  def new!(
+        date,
+        time,
+        time_zone \\ "Etc/UTC",
+        time_zone_database \\ Calendar.get_time_zone_database()
+      )
+
+  def new!(date, time, time_zone, time_zone_database) do
+    case new(date, time, time_zone, time_zone_database) do
+      {:ok, datetime} ->
+        datetime
+
+      {:ambiguous, dt1, dt2} ->
+        raise ArgumentError,
+              "cannot build datetime with #{inspect(date)} and #{inspect(time)} because such " <>
+                "instant is ambiguous in time zone #{time_zone} as there is an overlap " <>
+                "between #{inspect(dt1)} and #{inspect(dt2)}"
+
+      {:gap, dt1, dt2} ->
+        raise ArgumentError,
+              "cannot build datetime with #{inspect(date)} and #{inspect(time)} because such " <>
+                "instant does not exist in time zone #{time_zone} as there is a gap " <>
+                "between #{inspect(dt1)} and #{inspect(dt2)}"
+
+      {:error, reason} ->
+        raise ArgumentError,
+              "cannot build datetime with #{inspect(date)} and #{inspect(time)}, reason: #{
+                inspect(reason)
+              }"
+    end
   end
 
   @doc """
@@ -882,6 +1035,93 @@ defmodule DateTime do
   end
 
   @doc """
+  Converts a number of gregorian seconds to a `DateTime` struct.
+
+  The returned `DateTime` will have `UTC` timezone, if you want other tiimezone, please use 
+  `DateTime.shift_zone/3`.
+
+  ## Examples
+
+      iex> DateTime.from_gregorian_seconds(1)
+      ~U[0000-01-01 00:00:01Z]
+      iex> DateTime.from_gregorian_seconds(63_755_511_991, {5000, 3})
+      ~U[2020-05-01 00:26:31.005Z]
+      iex> DateTime.from_gregorian_seconds(-1)
+      ~U[-0001-12-31 23:59:59Z]
+
+  """
+  @doc since: "1.11.0"
+  @spec from_gregorian_seconds(integer(), Calendar.microsecond(), Calendar.calendar()) :: t
+  def from_gregorian_seconds(
+        seconds,
+        {microsecond, precision} \\ {0, 0},
+        calendar \\ Calendar.ISO
+      )
+      when is_integer(seconds) do
+    iso_days = Calendar.ISO.gregorian_seconds_to_iso_days(seconds, microsecond)
+
+    {year, month, day, hour, minute, second, {microsecond, _}} =
+      calendar.naive_datetime_from_iso_days(iso_days)
+
+    %DateTime{
+      calendar: calendar,
+      year: year,
+      month: month,
+      day: day,
+      hour: hour,
+      minute: minute,
+      second: second,
+      microsecond: {microsecond, precision},
+      std_offset: 0,
+      utc_offset: 0,
+      zone_abbr: "UTC",
+      time_zone: "Etc/UTC"
+    }
+  end
+
+  @doc """
+  Converts a `DateTime` struct to a number of gregorian seconds and microseconds.
+
+  ## Examples
+
+      iex> dt = %DateTime{year: 0000, month: 1, day: 1, zone_abbr: "UTC",
+      ...>                hour: 0, minute: 0, second: 1, microsecond: {0, 0},
+      ...>                utc_offset: 0, std_offset: 0, time_zone: "Etc/UTC"}
+      iex> DateTime.to_gregorian_seconds(dt)
+      {1, 0}
+
+      iex> dt = %DateTime{year: 2020, month: 5, day: 1, zone_abbr: "UTC",
+      ...>                hour: 0, minute: 26, second: 31, microsecond: {5000, 0},
+      ...>                utc_offset: 0, std_offset: 0, time_zone: "Etc/UTC"}
+      iex> DateTime.to_gregorian_seconds(dt)
+      {63_755_511_991, 5000}
+
+      iex> dt = %DateTime{year: 2020, month: 5, day: 1, zone_abbr: "CET",
+      ...>                hour: 1, minute: 26, second: 31, microsecond: {5000, 0},
+      ...>                utc_offset: 3600, std_offset: 0, time_zone: "Europe/Warsaw"}
+      iex> DateTime.to_gregorian_seconds(dt)
+      {63_755_511_991, 5000}
+
+  """
+  @doc since: "1.11.0"
+  @spec to_gregorian_seconds(Calendar.datetime()) :: {integer(), non_neg_integer()}
+  def to_gregorian_seconds(
+        %{
+          std_offset: std_offset,
+          utc_offset: utc_offset,
+          microsecond: {microsecond, _}
+        } = datetime
+      ) do
+    {days, day_fraction} =
+      datetime
+      |> to_iso_days()
+      |> apply_tz_offset(utc_offset + std_offset)
+
+    seconds_in_day = seconds_from_day_fraction(day_fraction)
+    {days * @seconds_per_day + seconds_in_day, microsecond}
+  end
+
+  @doc """
   Converts the given `datetime` to a string according to its calendar.
 
   ### Examples
@@ -1280,6 +1520,12 @@ defmodule DateTime do
       std_offset: datetime_map.std_offset
     }
   end
+
+  defp seconds_from_day_fraction({parts_in_day, @seconds_per_day}),
+    do: parts_in_day
+
+  defp seconds_from_day_fraction({parts_in_day, parts_per_day}),
+    do: div(parts_in_day * @seconds_per_day, parts_per_day)
 
   defimpl String.Chars do
     def to_string(datetime) do
