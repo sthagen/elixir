@@ -12,10 +12,10 @@ debug_info(elixir_v1, _Module, none, _Opts) ->
 debug_info(elixir_v1, _Module, {elixir_v1, Map, _Specs}, _Opts) ->
   {ok, Map};
 debug_info(erlang_v1, _Module, {elixir_v1, Map, Specs}, _Opts) ->
-  {Prefix, Forms, _, _, _, _} = dynamic_form(Map),
+  {Prefix, Forms, _, _, _} = dynamic_form(Map),
   {ok, Prefix ++ Specs ++ Forms};
 debug_info(core_v1, _Module, {elixir_v1, Map, Specs}, Opts) ->
-  {Prefix, Forms, _, _, _, _} = dynamic_form(Map),
+  {Prefix, Forms, _, _, _} = dynamic_form(Map),
   #{compile_opts := CompileOpts} = Map,
   AllOpts = CompileOpts ++ Opts,
 
@@ -105,7 +105,7 @@ scope(_Meta, ExpandCaptures) ->
 %% Static compilation hook, used in protocol consolidation
 
 consolidate(Map, TypeSpecs, Chunks) ->
-  {Prefix, Forms, _Def, _Defmacro, _Macros, _NoWarnUndefined} = dynamic_form(Map),
+  {Prefix, Forms, _Def, _Defmacro, _Macros} = dynamic_form(Map),
   load_form(Map, Prefix, Forms, TypeSpecs, Chunks).
 
 %% Dynamic compilation hook, used in regular compiler
@@ -123,28 +123,30 @@ spawned_compile(#{module := Module, line := Line} = Map) ->
       false -> ?typespecs:translate_typespecs_for_module(Set, Bag)
     end,
 
-  {Prefix, Forms, Def, Defmacro, Macros, NoWarnUndefined} = dynamic_form(Map),
+  {Prefix, Forms, Def, Defmacro, Macros} = dynamic_form(Map),
   {Types, Callbacks, TypeSpecs} = typespecs_form(Map, TranslatedTypespecs, Macros),
 
   DocsChunk = docs_chunk(Set, Module, Line, Def, Defmacro, Types, Callbacks),
-  CheckerChunk = checker_chunk(Map, NoWarnUndefined),
+  CheckerChunk = checker_chunk(Map),
   load_form(Map, Prefix, Forms, TypeSpecs, DocsChunk ++ CheckerChunk).
 
 dynamic_form(#{module := Module, line := Line, relative_file := RelativeFile,
                attributes := Attributes, definitions := Definitions, unreachable := Unreachable,
-               deprecated := Deprecated, compile_opts := Opts}) ->
+               deprecated := Deprecated, compile_opts := Opts} = Map) ->
   {Def, Defmacro, Macros, Exports, Functions} =
     split_definition(Definitions, Unreachable, [], [], [], [], {[], []}),
 
-  {NoWarnUndefined, FilteredOpts} = split_no_warn_undefined(Opts, [], []),
+  FilteredOpts = lists:filter(fun({no_warn_undefined, _}) -> false; (_) -> true end, Opts),
   Location = {elixir_utils:characters_to_list(RelativeFile), Line},
+
   Prefix = [{attribute, Line, file, Location},
             {attribute, Line, module, Module},
             {attribute, Line, compile, [no_auto_import | FilteredOpts]}],
 
-  Forms0 = functions_form(Line, Module, Def, Defmacro, Exports, Functions, Deprecated),
+  Struct = maps:get(struct, Map, nil),
+  Forms0 = functions_form(Line, Module, Def, Defmacro, Exports, Functions, Deprecated, Struct),
   Forms1 = attributes_form(Line, Attributes, Forms0),
-  {Prefix, Forms1, Def, Defmacro, Macros, NoWarnUndefined}.
+  {Prefix, Forms1, Def, Defmacro, Macros}.
 
 % Definitions
 
@@ -238,13 +240,15 @@ is_macro(_)         -> false.
 
 % Functions
 
-functions_form(Line, Module, Def, Defmacro, Exports, Body, Deprecated) ->
-  {Spec, Info} = add_info_function(Line, Module, Def, Defmacro, Deprecated),
+functions_form(Line, Module, Def, Defmacro, Exports, Body, Deprecated, Struct) ->
+  {Spec, Info} = add_info_function(Line, Module, Def, Defmacro, Deprecated, Struct),
   [{attribute, Line, export, lists:sort([{'__info__', 1} | Exports])}, Spec, Info | Body].
 
-add_info_function(Line, Module, Def, Defmacro, Deprecated) ->
-  AllowedAttrs = [attributes, compile, functions, macros, md5, module, deprecated],
+add_info_function(Line, Module, Def, Defmacro, Deprecated, Struct) ->
+  AllowedAttrs = [attributes, compile, functions, macros, md5, exports_md5, module, deprecated],
   AllowedArgs = lists:map(fun(Atom) -> {atom, Line, Atom} end, AllowedAttrs),
+  SortedDef = lists:sort(Def),
+  SortedDefmacro = lists:sort(Defmacro),
 
   Spec =
     {attribute, Line, spec, {{'__info__', 1},
@@ -258,9 +262,10 @@ add_info_function(Line, Module, Def, Defmacro, Deprecated) ->
 
   Info =
     {function, 0, '__info__', 1, [
-      direct_module_info(Module),
-      functions_info(Def),
-      macros_info(Defmacro),
+      get_module_info(Module),
+      functions_info(SortedDef),
+      macros_info(SortedDefmacro),
+      exports_md5_info(Struct, SortedDef, SortedDefmacro),
       get_module_info(Module, attributes),
       get_module_info(Module, compile),
       get_module_info(Module, md5),
@@ -269,14 +274,20 @@ add_info_function(Line, Module, Def, Defmacro, Deprecated) ->
 
   {Spec, Info}.
 
-direct_module_info(Module) ->
+get_module_info(Module) ->
   {clause, 0, [{atom, 0, module}], [], [{atom, 0, Module}]}.
 
+exports_md5_info(Struct, Def, Defmacro) ->
+  %% Deprecations do not need to be part of exports_md5 because it is always
+  %% checked by the runtime pass, so it is not really part of compilation.
+  Md5 = erlang:md5(erlang:term_to_binary({Def, Defmacro, Struct})),
+  {clause, 0, [{atom, 0, exports_md5}], [], [elixir_erl:elixir_to_erl(Md5)]}.
+
 functions_info(Def) ->
-  {clause, 0, [{atom, 0, functions}], [], [elixir_erl:elixir_to_erl(lists:sort(Def))]}.
+  {clause, 0, [{atom, 0, functions}], [], [elixir_erl:elixir_to_erl(Def)]}.
 
 macros_info(Defmacro) ->
-  {clause, 0, [{atom, 0, macros}], [], [elixir_erl:elixir_to_erl(lists:sort(Defmacro))]}.
+  {clause, 0, [{atom, 0, macros}], [], [elixir_erl:elixir_to_erl(Defmacro)]}.
 
 get_module_info(Module, Key) ->
   Call = ?remote(0, erlang, get_module_info, [{atom, 0, Module}, {var, 0, 'Key'}]),
@@ -531,7 +542,7 @@ signature_to_binary(Module, '__struct__', []) ->
 signature_to_binary(_, Name, Signature) ->
   'Elixir.Macro':to_string({Name, [], Signature}).
 
-checker_chunk(#{definitions := Definitions, deprecated := Deprecated, is_behaviour := IsBehaviour}, NoWarnUndefined) ->
+checker_chunk(#{definitions := Definitions, deprecated := Deprecated, is_behaviour := IsBehaviour}) ->
   DeprecatedMap = maps:from_list(Deprecated),
 
   Exports =
@@ -546,24 +557,13 @@ checker_chunk(#{definitions := Definitions, deprecated := Deprecated, is_behavio
     end, [], Definitions),
 
   Contents = #{
-    exports => lists:sort(behaviour_info_exports(IsBehaviour) ++ Exports),
-    no_warn_undefined => NoWarnUndefined
+    exports => lists:sort(behaviour_info_exports(IsBehaviour) ++ Exports)
   },
 
   [{<<"ExCk">>, erlang:term_to_binary({elixir_checker_v1, Contents})}].
 
 behaviour_info_exports(true) -> [{{behaviour_info, 1}, #{kind => def, deprecated_reason => nil}}];
 behaviour_info_exports(false) -> [].
-
-split_no_warn_undefined([{no_warn_undefined, NoWarnUndefined} | CompileOpts], AccNWU, AccCO) ->
-  split_no_warn_undefined(CompileOpts, list_wrap(NoWarnUndefined) ++ AccNWU, AccCO);
-split_no_warn_undefined([Opt | CompileOpts], AccNWU, AccCO) ->
-  split_no_warn_undefined(CompileOpts, AccNWU, [Opt | AccCO]);
-split_no_warn_undefined([], AccNWU, AccCO) ->
-  {AccNWU, lists:reverse(AccCO)}.
-
-list_wrap(List) when is_list(List) -> List;
-list_wrap(Other) -> [Other].
 
 %% Errors
 
