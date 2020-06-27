@@ -757,14 +757,18 @@ defmodule Mix.Release do
   def copy_ebin(release, source, target) do
     with {:ok, [_ | _] = files} <- File.ls(source) do
       File.mkdir_p!(target)
-      strip_beams? = Keyword.get(release.options, :strip_beams, true)
+
+      strip_options =
+        release.options
+        |> Keyword.get(:strip_beams, true)
+        |> parse_strip_beams_options()
 
       for file <- files do
         source_file = Path.join(source, file)
         target_file = Path.join(target, file)
 
-        with true <- strip_beams? and String.ends_with?(file, ".beam"),
-             {:ok, binary} <- strip_beam(File.read!(source_file)) do
+        with true <- is_list(strip_options) and String.ends_with?(file, ".beam"),
+             {:ok, binary} <- strip_beam(File.read!(source_file), strip_options) do
           File.write!(target_file, binary)
         else
           _ -> File.copy(source_file, target_file)
@@ -786,9 +790,12 @@ defmodule Mix.Release do
   The exact chunks that are kept are not documented and may change in
   future versions.
   """
-  @spec strip_beam(binary()) :: {:ok, binary} | {:error, :beam_lib, term}
-  def strip_beam(binary) do
-    case :beam_lib.chunks(binary, @significant_chunks, [:allow_missing_chunks]) do
+  @spec strip_beam(binary(), keyword()) :: {:ok, binary()} | {:error, :beam_lib, term()}
+  def strip_beam(binary, options \\ []) when is_list(options) do
+    chunks_to_keep = options[:keep] |> List.wrap() |> Enum.map(&String.to_charlist/1)
+    all_chunks = Enum.uniq(@significant_chunks ++ chunks_to_keep)
+
+    case :beam_lib.chunks(binary, all_chunks, [:allow_missing_chunks]) do
       {:ok, {_, chunks}} ->
         chunks = for {name, chunk} <- chunks, is_binary(chunk), do: {name, chunk}
         {:ok, binary} = :beam_lib.build_module(chunks)
@@ -800,6 +807,14 @@ defmodule Mix.Release do
 
       {:error, _, _} = error ->
         error
+    end
+  end
+
+  defp parse_strip_beams_options(options) do
+    case options do
+      options when is_list(options) -> options
+      true -> []
+      false -> nil
     end
   end
 end
