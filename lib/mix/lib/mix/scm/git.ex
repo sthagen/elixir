@@ -7,7 +7,11 @@ defmodule Mix.SCM.Git do
   end
 
   def format(opts) do
-    opts[:git]
+    if rev = get_opts_rev(opts) do
+      "#{opts[:git]} - #{rev}"
+    else
+      opts[:git]
+    end
   end
 
   def format_lock(opts) do
@@ -120,7 +124,7 @@ defmodule Mix.SCM.Git do
     |> git!()
 
     # Migrate the Git repo
-    rev = get_lock_rev(opts[:lock], opts) || get_opts_rev(opts)
+    rev = get_lock_rev(opts[:lock], opts) || get_opts_rev(opts) || default_branch()
     git!(["--git-dir=.git", "checkout", "--quiet", rev])
 
     if opts[:submodules] do
@@ -224,7 +228,7 @@ defmodule Mix.SCM.Git do
     if branch = opts[:branch] do
       "origin/#{branch}"
     else
-      opts[:ref] || opts[:tag] || "origin/master"
+      opts[:ref] || opts[:tag]
     end
   end
 
@@ -245,6 +249,11 @@ defmodule Mix.SCM.Git do
   defp update_origin(location) do
     git!(["--git-dir=.git", "config", "remote.origin.url", location])
     :ok
+  end
+
+  defp default_branch() do
+    git!(["--git-dir=.git", "remote", "set-head", "origin", "-a"])
+    "origin/HEAD"
   end
 
   defp git!(args, into \\ default_into()) do
