@@ -47,6 +47,9 @@ defmodule Kernel.WarningTest do
     test "does not warn for unnecessary quotes in uppercase atoms/keywords" do
       assert capture_err(fn -> Code.eval_string(~s/:"Foo"/) end) == ""
       assert capture_err(fn -> Code.eval_string(~s/["Foo": :bar]/) end) == ""
+      assert capture_err(fn -> Code.eval_string(~s/:"Foo"/) end) == ""
+      assert capture_err(fn -> Code.eval_string(~s/:"foo@bar"/) end) == ""
+      assert capture_err(fn -> Code.eval_string(~s/:"héllò"/) end) == ""
     end
 
     test "warns for unnecessary quotes" do
@@ -79,6 +82,23 @@ defmodule Kernel.WarningTest do
     assert output =~ "variable \"arg\" is unused"
     assert output =~ "variable \"module\" is unused"
     assert output =~ "variable \"file\" is unused"
+  after
+    purge(Sample)
+  end
+
+  test "unused compiler variable" do
+    output =
+      capture_err(fn ->
+        Code.eval_string("""
+        defmodule Sample do
+          def hello(__MODULE___), do: :ok
+          def world(_R), do: :ok
+        end
+        """)
+      end)
+
+    assert output =~ "unknown compiler variable \"__MODULE___\""
+    refute output =~ "unknown compiler variable \"_R\""
   after
     purge(Sample)
   end
