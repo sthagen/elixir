@@ -1,8 +1,11 @@
 defmodule Keyword do
   @moduledoc """
-  Keyword lists are lists of two-element tuples, where the first
-  element of the tuple is an atom and the second element can be any
-  value, used mostly to work with optional values.
+  A keyword list is a list that consists exclusively of two-element tuples.
+
+  The first element of these tuples is known as the *key*, and it must be an atom.
+  The second element, known as the *value*, can be any term.
+
+  Keywords are mostly used to work with optional values.
 
   ## Examples
 
@@ -431,13 +434,30 @@ defmodule Keyword do
 
       iex> Keyword.keys(a: 1, b: 2)
       [:a, :b]
+
       iex> Keyword.keys(a: 1, b: 2, a: 3)
       [:a, :b, :a]
+
+      iex> Keyword.keys([{:a, 1}, {"b", 2}, {:c, 3}])
+      ** (ArgumentError) expected a keyword list, but an entry in the list is not a two-element tuple with an atom as its first element, got: {"b", 2}
 
   """
   @spec keys(t) :: [key]
   def keys(keywords) when is_list(keywords) do
-    :lists.map(fn {k, _} when is_atom(k) -> k end, keywords)
+    try do
+      :lists.map(
+        fn
+          {key, _} when is_atom(key) -> key
+          element -> throw(element)
+        end,
+        keywords
+      )
+    catch
+      element ->
+        raise ArgumentError,
+              "expected a keyword list, but an entry in the list is not a two-element tuple with an atom as its first element, " <>
+                "got: #{inspect(element)}"
+    end
   end
 
   @doc """
