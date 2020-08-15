@@ -1940,7 +1940,7 @@ defmodule Kernel do
 
   Works like `raise/1` but does not generate a new stacktrace.
 
-  Notice that `__STACKTRACE__` can be used inside catch/rescue
+  Note that `__STACKTRACE__` can be used inside catch/rescue
   to retrieve the current stacktrace.
 
   ## Examples
@@ -3076,7 +3076,7 @@ defmodule Kernel do
   will be available at compile-time. Custom attributes may be configured to
   behave closer to Erlang by using `Module.register_attribute/3`.
 
-  Finally, notice that attributes can also be read inside functions:
+  Finally, note that attributes can also be read inside functions:
 
       defmodule MyServer do
         @my_data 11
@@ -3948,13 +3948,20 @@ defmodule Kernel do
   end
 
   @doc """
-  When used inside quoting, marks that the given variable should
-  not be hygienized.
+  Marks that the given variable should not be hygienized.
 
-  The argument can be either a variable unquoted or in standard tuple form
-  `{name, meta, context}`.
+  This macro expects a variable and it is typically invoked
+  inside `Kernel.SpecialForms.quote/2` to mark that a variable
+  should not be hygienized. See `Kernel.SpecialForms.quote/2`
+  for more information.
 
-  Check `Kernel.SpecialForms.quote/2` for more information.
+  ## Examples
+
+      iex> Kernel.var!(example) = 1
+      1
+      iex> Kernel.var!(example)
+      1
+
   """
   defmacro var!(var, context \\ nil)
 

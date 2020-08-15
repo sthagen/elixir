@@ -91,7 +91,7 @@ defmodule EEx.TokenizerTest do
     assert T.tokenize('<%%% a <%%= b %> c %>', 1, 1, @opts) == {:ok, exprs}
   end
 
-  test "comments" do
+  test "eex comments" do
     exprs = [
       {:text, 'foo '},
       {:eof, 1, 16}
@@ -100,13 +100,35 @@ defmodule EEx.TokenizerTest do
     assert T.tokenize('foo <%# true %>', 1, 1, @opts) == {:ok, exprs}
   end
 
-  test "comments with do/end" do
+  test "eex comments with do/end" do
     exprs = [
       {:text, 'foo bar'},
       {:eof, 1, 32}
     ]
 
     assert T.tokenize('foo <%# true do %>bar<%# end %>', 1, 1, @opts) == {:ok, exprs}
+  end
+
+  test "elixir comments" do
+    exprs = [
+      {:text, 'foo '},
+      {:expr, 1, 5, [], ' true # this is a boolean '},
+      {:eof, 1, 35}
+    ]
+
+    assert T.tokenize('foo <% true # this is a boolean %>', 1, 1, @opts) == {:ok, exprs}
+  end
+
+  test "elixir comments with do/end" do
+    exprs = [
+      {:start_expr, 1, 1, [], ' if true do # startif '},
+      {:text, 'text'},
+      {:end_expr, 1, 31, [], ' end # closeif '},
+      {:eof, 1, 50}
+    ]
+
+    assert T.tokenize('<% if true do # startif %>text<% end # closeif %>', 1, 1, @opts) ==
+             {:ok, exprs}
   end
 
   test "strings with embedded do end" do
@@ -236,8 +258,13 @@ defmodule EEx.TokenizerTest do
     assert_not_trimmed.('  <%= 01 %><%= 23 %>\n')
   end
 
-  test "raise syntax error when there is start mark and no end mark" do
+  test "returns error when there is start mark and no end mark" do
     assert T.tokenize('foo <% :bar', 1, 1, @opts) == {:error, 1, 12, "missing token '%>'"}
     assert T.tokenize('<%# true ', 1, 1, @opts) == {:error, 1, 10, "missing token '%>'"}
+  end
+
+  test "marks invalid expressions as regular expressions" do
+    assert T.tokenize('<% 1 $ 2 %>', 1, 1, @opts) ==
+             {:ok, [{:expr, 1, 1, [], ' 1 $ 2 '}, {:eof, 1, 12}]}
   end
 end
