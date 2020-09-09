@@ -476,7 +476,8 @@ defmodule Module.Types.Infer do
     traces = tag_traces(traces, context)
 
     error = {:unable_unify, left, right, {location, stack.last_expr, traces}}
-    {:error, {Module.Types, error, [location]}}
+    context = update_in(context.warnings, &[{Module.Types, error, location} | &1])
+    {:error, context}
   end
 
   # Collect relevant traces from context.traces using stack.unify_stack
@@ -524,9 +525,6 @@ defmodule Module.Types.Infer do
       end
     end)
   end
-
-  defp get_meta({_fun, meta, _args}) when is_list(meta), do: meta
-  defp get_meta(_other), do: []
 
   # TODO: We should check if structs have keys that do not belong to them.
   #       This might not be the best place to do it since it will only be

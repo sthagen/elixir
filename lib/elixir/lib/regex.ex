@@ -21,8 +21,9 @@ defmodule Regex do
 
   A Regex is represented internally as the `Regex` struct. Therefore,
   `%Regex{}` can be used whenever there is a need to match on them.
-  Keep in mind it is not guaranteed two regular expressions from the
-  same source are equal, for example:
+  Keep in mind that all of the structs fields are private. There is
+  also not guarantee two regular expressions from the same source are
+  equal, for example:
 
       ~r/(?<foo>.)(?<bar>.)/ == ~r/(?<foo>.)(?<bar>.)/
 
@@ -278,17 +279,9 @@ defmodule Regex do
   @doc """
   Returns `true` if the given `term` is a regex.
   Otherwise returns `false`.
-
-  ## Examples
-
-      iex> Regex.regex?(~r/foo/)
-      true
-
-      iex> Regex.regex?(0)
-      false
-
   """
-  @spec regex?(any) :: boolean
+  # TODO: Remove this on Elixir v1.15
+  @doc deprecated: "Use Kernel.is_struct/2 or pattern match on %Regex{} instead"
   def regex?(term)
   def regex?(%Regex{}), do: true
   def regex?(_), do: false
@@ -764,12 +757,12 @@ defmodule Regex do
     end
   end
 
-  defp get_index(_string, {pos, _len}) when pos < 0 do
+  defp get_index(_string, {pos, _length}) when pos < 0 do
     ""
   end
 
-  defp get_index(string, {pos, len}) do
-    <<_::size(pos)-binary, res::size(len)-binary, _::binary>> = string
+  defp get_index(string, {pos, length}) do
+    <<_::size(pos)-binary, res::size(length)-binary, _::binary>> = string
     res
   end
 

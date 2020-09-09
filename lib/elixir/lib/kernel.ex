@@ -93,7 +93,7 @@ defmodule Kernel do
   ### Protocols
 
   Protocols add polymorphic dispatch to Elixir. They are contracts
-  implementable by data types. See `defprotocol/2` for more information on
+  implementable by data types. See `Protocol` for more information on
   protocols. Elixir provides the following protocols in the standard library:
 
     * `Collectable` - collects data into a data type
@@ -1383,6 +1383,16 @@ defmodule Kernel do
 
       iex> [1, 2, 3, 2, 1] -- [1, 2, 2]
       [3, 1]
+
+  The `--/2` operator is right associative, meaning:
+
+      iex> [1, 2, 3] -- [2] -- [3]
+      [1, 3]
+
+  As it is equivalent to:
+
+      iex> [1, 2, 3] -- ([2] -- [3])
+      [1, 3]
 
   """
   @spec list -- list :: list
@@ -4898,8 +4908,8 @@ defmodule Kernel do
 
   ## Examples
 
-  For example, in order to write test cases using the `ExUnit` framework
-  provided with Elixir, a developer should `use` the `ExUnit.Case` module:
+  For example, to write test cases using the `ExUnit` framework provided
+  with Elixir, a developer should `use` the `ExUnit.Case` module:
 
       defmodule AssertionTest do
         use ExUnit.Case, async: true
@@ -4909,8 +4919,11 @@ defmodule Kernel do
         end
       end
 
-  In this example, `ExUnit.Case.__using__/1` is called with the keyword list
-  `[async: true]` as its argument; `use/2` translates to:
+  In this example, Elixir will call the `__using__/1` macro in the
+  `ExUnit.Case` module with the keyword list `[async: true]` as its
+  argument.
+
+  In other words, `use/2` translates to:
 
       defmodule AssertionTest do
         require ExUnit.Case
@@ -4921,7 +4934,7 @@ defmodule Kernel do
         end
       end
 
-  `ExUnit.Case` will then define the `__using__/1` macro:
+  where `ExUnit.Case` defines the `__using__/1` macro:
 
       defmodule ExUnit.Case do
         defmacro __using__(opts) do

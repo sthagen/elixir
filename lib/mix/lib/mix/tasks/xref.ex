@@ -85,6 +85,9 @@ defmodule Mix.Tasks.Xref do
       # To get all files that depend on lib/foo.ex at compile time
       mix xref graph --label compile --sink lib/foo.ex --only-nodes
 
+      # To get all paths between two files
+      mix xref graph --source lib/foo.ex --sink lib/bar.ex
+
       # To show general statistics about the graph
       mix xref graph --format stats
 
@@ -449,41 +452,33 @@ defmodule Mix.Tasks.Xref do
 
   defp write_graph(file_references, filter, opts) do
     excluded = excluded(opts)
+    source = opts[:source]
+    sink = opts[:sink]
 
-    {roots, file_references} =
-      case {opts[:source], opts[:sink]} do
-        {nil, nil} ->
-          roots =
-            file_references |> Enum.map(&{elem(&1, 0), nil}) |> Kernel.--(excluded) |> Map.new()
+    if source && is_nil(file_references[source]) do
+      Mix.raise("Source could not be found: #{source}")
+    end
 
-          {roots, file_references}
+    if sink && is_nil(file_references[sink]) do
+      Mix.raise("Sink could not be found: #{sink}")
+    end
 
-        {source, nil} ->
-          if file_references[source] do
-            file_references = filter_for_source(file_references, filter)
-            {%{source => nil}, file_references}
-          else
-            Mix.raise("Source could not be found: #{source}")
-          end
+    file_references =
+      if sink = opts[:sink] do
+        filter_for_sink(file_references, sink, filter)
+      else
+        filter_for_source(file_references, filter)
+      end
 
-        {nil, sink} ->
-          if file_references[sink] do
-            file_references = filter_for_sink(file_references, sink, filter)
-
-            roots =
-              file_references
-              |> Map.delete(sink)
-              |> Enum.map(&{elem(&1, 0), nil})
-              |> Kernel.--(excluded)
-              |> Map.new()
-
-            {roots, file_references}
-          else
-            Mix.raise("Sink could not be found: #{sink}")
-          end
-
-        {_, _} ->
-          Mix.raise("mix xref graph expects only one of --source and --sink")
+    roots =
+      if source = opts[:source] do
+        %{source => nil}
+      else
+        file_references
+        |> Map.delete(opts[:sink])
+        |> Enum.map(&{elem(&1, 0), nil})
+        |> Kernel.--(excluded)
+        |> Map.new()
       end
 
     callback = fn {file, type} ->

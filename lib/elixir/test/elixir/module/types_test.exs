@@ -15,7 +15,7 @@ defmodule Module.TypesTest do
         def_expr(),
         new_context()
       )
-      |> maybe_error()
+      |> lift_result()
     end
   end
 
@@ -27,7 +27,7 @@ defmodule Module.TypesTest do
            {:ok, type, context} <- Types.of_body(body, context) do
         {:ok, Types.lift_type(type, context)}
       else
-        {:error, {Types, reason, location}} ->
+        {:error, %{warnings: [{Types, reason, location} | _]}} ->
           {:error, {reason, location}}
       end
     end
@@ -68,18 +68,18 @@ defmodule Module.TypesTest do
   end
 
   defp new_context() do
-    Types.context("types_test.ex", TypesTest, {:test, 0})
+    Types.context("types_test.ex", TypesTest, {:test, 0}, [], Module.ParallelChecker.test_cache())
   end
 
   defp def_expr() do
     {:def, [], {:test, [], []}}
   end
 
-  defp maybe_error({:ok, types, context}) when is_list(types) do
+  defp lift_result({:ok, types, context}) when is_list(types) do
     {:ok, Types.lift_types(types, context)}
   end
 
-  defp maybe_error({:error, {Types, reason, location}}) do
+  defp lift_result({:error, %{warnings: [{Types, reason, location} | _]}}) do
     {:error, {reason, location}}
   end
 
@@ -288,28 +288,38 @@ defmodule Module.TypesTest do
   end
 
   test "format_type/1" do
-    assert Types.format_type(:binary) == "binary()"
-    assert Types.format_type({:atom, true}) == "true"
-    assert Types.format_type({:atom, :atom}) == ":atom"
-    assert Types.format_type({:list, :binary}) == "[binary()]"
-    assert Types.format_type({:tuple, []}) == "{}"
-    assert Types.format_type({:tuple, [:integer]}) == "{integer()}"
-    assert Types.format_type({:map, []}) == "%{}"
-    assert Types.format_type({:map, [{:required, {:atom, :foo}, :atom}]}) == "%{foo: atom()}"
-    assert Types.format_type({:map, [{:required, :integer, :atom}]}) == "%{integer() => atom()}"
+    assert Types.format_type(:binary, false) == "binary()"
+    assert Types.format_type({:atom, true}, false) == "true"
+    assert Types.format_type({:atom, :atom}, false) == ":atom"
+    assert Types.format_type({:list, :binary}, false) == "[binary()]"
+    assert Types.format_type({:tuple, []}, false) == "{}"
+    assert Types.format_type({:tuple, [:integer]}, false) == "{integer()}"
 
-    assert Types.format_type({:map, [{:optional, :integer, :atom}]}) ==
+    assert Types.format_type({:map, []}, true) == "map()"
+    assert Types.format_type({:map, [{:required, {:atom, :foo}, :atom}]}, true) == "map()"
+
+    assert Types.format_type({:map, []}, false) ==
+             "%{}"
+
+    assert Types.format_type({:map, [{:required, {:atom, :foo}, :atom}]}, false) ==
+             "%{foo: atom()}"
+
+    assert Types.format_type({:map, [{:required, :integer, :atom}]}, false) ==
+             "%{integer() => atom()}"
+
+    assert Types.format_type({:map, [{:optional, :integer, :atom}]}, false) ==
              "%{optional(integer()) => atom()}"
 
-    assert Types.format_type({:map, [{:optional, {:atom, :foo}, :atom}]}) ==
+    assert Types.format_type({:map, [{:optional, {:atom, :foo}, :atom}]}, false) ==
              "%{optional(:foo) => atom()}"
 
-    assert Types.format_type({:map, [{:required, {:atom, :__struct__}, {:atom, Struct}}]}) ==
+    assert Types.format_type({:map, [{:required, {:atom, :__struct__}, {:atom, Struct}}]}, false) ==
              "%Struct{}"
 
     assert Types.format_type(
              {:map,
-              [{:required, {:atom, :__struct__}, {:atom, Struct}}, {:required, :integer, :atom}]}
+              [{:required, {:atom, :__struct__}, {:atom, Struct}}, {:required, :integer, :atom}]},
+             false
            ) ==
              "%Struct{integer() => atom()}"
   end
