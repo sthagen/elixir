@@ -276,6 +276,11 @@ inner_rewrite(erl_to_ex, _Meta, erlang, element, [{{'.', _, [erlang, '+']}, _, [
 inner_rewrite(erl_to_ex, _Meta, erlang, setelement, [{{'.', _, [erlang, '+']}, _, [Index, 1]}, Tuple, Value]) ->
   {?kernel, put_elem, [Tuple, Index, Value]};
 
+inner_rewrite(erl_to_ex, _Meta, erlang, 'orelse', [_, _] = Args) ->
+  {?kernel, 'or', Args};
+inner_rewrite(erl_to_ex, _Meta, erlang, 'andalso', [_, _] = Args) ->
+  {?kernel, 'and', Args};
+
 inner_rewrite(_To, _Meta, Mod, Fun, Args) -> {Mod, Fun, Args}.
 
 increment(_Meta, Number) when is_number(Number) ->
@@ -322,6 +327,10 @@ guard_rewrite(Receiver, DotMeta, Right, Meta, Args) ->
     _ -> {error, {invalid_guard, Receiver, Right, length(Args)}}
   end.
 
+%% erlang:is_record/2-3 are compiler guards in Erlang which we
+%% need to explicitly forbid as they are allowed in erl_internal.
+allowed_guard(is_record, 2) -> false;
+allowed_guard(is_record, 3) -> false;
 allowed_guard(Right, Arity) ->
   erl_internal:guard_bif(Right, Arity) orelse elixir_utils:guard_op(Right, Arity).
 

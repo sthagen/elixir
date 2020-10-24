@@ -25,6 +25,7 @@ defmodule Mix.Tasks.App.Config do
 
   @switches [preload_modules: :boolean]
 
+  @impl true
   def run(args) do
     Mix.Project.get!()
     Mix.Task.run("compile", args)
@@ -34,7 +35,7 @@ defmodule Mix.Tasks.App.Config do
     runtime = config[:config_path] |> Path.dirname() |> Path.join("runtime.exs")
 
     if File.exists?(runtime) do
-      Mix.Tasks.Loadconfig.load_file(runtime)
+      Mix.Tasks.Loadconfig.load_runtime(runtime)
     end
 
     if opts[:preload_modules] do

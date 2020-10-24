@@ -259,39 +259,8 @@ defmodule ExUnit.Case do
     end
 
     quote do
-      unless Module.has_attribute?(__MODULE__, :ex_unit_tests) do
-        tag_check =
-          [:moduletag, :describetag, :tag]
-          |> Enum.any?(&Module.has_attribute?(__MODULE__, &1))
-
-        if tag_check do
-          raise "you must set @tag, @describetag, and @moduletag after the call to \"use ExUnit.Case\""
-        end
-
-        attributes = [
-          :ex_unit_tests,
-          :tag,
-          :describetag,
-          :moduletag,
-          :ex_unit_registered_test_attributes,
-          :ex_unit_registered_describe_attributes,
-          :ex_unit_registered_module_attributes,
-          :ex_unit_used_describes
-        ]
-
-        Enum.each(attributes, &Module.register_attribute(__MODULE__, &1, accumulate: true))
-
-        @before_compile ExUnit.Case
-        @after_compile ExUnit.Case
-        @ex_unit_async false
-        @ex_unit_describe nil
+      unless ExUnit.Case.__register__(__MODULE__, unquote(opts)) do
         use ExUnit.Callbacks
-      end
-
-      async = unquote(opts)[:async]
-
-      if is_boolean(async) do
-        @ex_unit_async async
       end
 
       import ExUnit.Callbacks
@@ -299,6 +268,49 @@ defmodule ExUnit.Case do
       import ExUnit.Case, only: [describe: 2, test: 1, test: 2, test: 3]
       import ExUnit.DocTest
     end
+  end
+
+  @doc false
+  def __register__(module, opts) do
+    registered? = Module.has_attribute?(module, :ex_unit_tests)
+
+    unless registered? do
+      tag_check = Enum.any?([:moduletag, :describetag, :tag], &Module.has_attribute?(module, &1))
+
+      if tag_check do
+        raise "you must set @tag, @describetag, and @moduletag after the call to \"use ExUnit.Case\""
+      end
+
+      attributes = [
+        :ex_unit_tests,
+        :tag,
+        :describetag,
+        :moduletag,
+        :ex_unit_registered_test_attributes,
+        :ex_unit_registered_describe_attributes,
+        :ex_unit_registered_module_attributes,
+        :ex_unit_used_describes
+      ]
+
+      Enum.each(attributes, &Module.register_attribute(module, &1, accumulate: true))
+
+      attributes = [
+        before_compile: ExUnit.Case,
+        after_compile: ExUnit.Case,
+        ex_unit_async: false,
+        ex_unit_describe: nil
+      ]
+
+      Enum.each(attributes, fn {k, v} -> Module.put_attribute(module, k, v) end)
+    end
+
+    async? = opts[:async]
+
+    if is_boolean(async?) do
+      Module.put_attribute(module, :ex_unit_async, async?)
+    end
+
+    registered?
   end
 
   @doc """
@@ -333,9 +345,17 @@ defmodule ExUnit.Case do
 
     var = Macro.escape(var)
     contents = Macro.escape(contents, unquote: true)
+    %{module: mod, file: file, line: line} = __CALLER__
 
-    quote bind_quoted: [var: var, contents: contents, message: message] do
-      name = ExUnit.Case.register_test(__ENV__, :test, message, [])
+    quote bind_quoted: [
+            var: var,
+            contents: contents,
+            message: message,
+            mod: mod,
+            file: file,
+            line: line
+          ] do
+      name = ExUnit.Case.register_test(mod, file, line, :test, message, [])
       def unquote(name)(unquote(var)), do: unquote(contents)
     end
   end
@@ -354,8 +374,10 @@ defmodule ExUnit.Case do
 
   """
   defmacro test(message) do
+    %{module: mod, file: file, line: line} = __CALLER__
+
     quote bind_quoted: binding() do
-      name = ExUnit.Case.register_test(__ENV__, :test, message, [:not_implemented])
+      name = ExUnit.Case.register_test(mod, file, line, :test, message, [:not_implemented])
       def unquote(name)(_), do: flunk("Not implemented")
     end
   end
@@ -423,23 +445,14 @@ defmodule ExUnit.Case do
   """
   defmacro describe(message, do: block) do
     quote do
-      ExUnit.Case.__describe__(__MODULE__, __ENV__.line, unquote(message))
-
-      try do
+      ExUnit.Case.__describe__(__MODULE__, __ENV__.line, unquote(message), fn ->
         unquote(block)
-      after
-        @ex_unit_describe nil
-        Module.delete_attribute(__MODULE__, :describetag)
-
-        for attribute <- Module.get_attribute(__MODULE__, :ex_unit_registered_describe_attributes) do
-          Module.delete_attribute(__MODULE__, attribute)
-        end
-      end
+      end)
     end
   end
 
   @doc false
-  def __describe__(module, line, message) do
+  def __describe__(module, line, message, fun) do
     if Module.get_attribute(module, :ex_unit_describe) do
       raise "cannot call \"describe\" inside another \"describe\". See the documentation " <>
               "for ExUnit.Case.describe/2 on named setups and how to handle hierarchies"
@@ -463,7 +476,17 @@ defmodule ExUnit.Case do
 
     Module.put_attribute(module, :ex_unit_describe, {line, message})
     Module.put_attribute(module, :ex_unit_used_describes, message)
-    :ok
+
+    try do
+      fun.()
+    after
+      Module.put_attribute(module, :ex_unit_describe, nil)
+      Module.delete_attribute(module, :describetag)
+
+      for attribute <- Module.get_attribute(module, :ex_unit_registered_describe_attributes) do
+        Module.delete_attribute(module, attribute)
+      end
+    end
   end
 
   @doc false
@@ -496,7 +519,7 @@ defmodule ExUnit.Case do
   display. You can use `ExUnit.plural_rule/2` to set a custom
   pluralization.
   """
-  def register_test(%{module: mod, file: file, line: line}, test_type, name, tags) do
+  def register_test(mod, file, line, test_type, name, tags) do
     unless Module.has_attribute?(mod, :ex_unit_tests) do
       raise "cannot define #{test_type}. Please make sure you have invoked " <>
               "\"use ExUnit.Case\" in the current module"
@@ -555,6 +578,17 @@ defmodule ExUnit.Case do
     end
 
     name
+  end
+
+  @doc """
+  Registers a test with the given environment.
+
+  This function is deprecated in favor of `register_test/6` which performs
+  better under tight loops by avoiding `__ENV__`.
+  """
+  @doc deprecated: "Use register_test/6 instead"
+  def register_test(%{module: mod, file: file, line: line}, test_type, name, tags) do
+    register_test(mod, file, line, test_type, name, tags)
   end
 
   @doc """

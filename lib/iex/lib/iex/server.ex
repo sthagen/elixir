@@ -2,7 +2,7 @@ defmodule IEx.State do
   @moduledoc false
   # This state is exchanged between IEx.Server and
   # IEx.Evaluator which is why it is a struct.
-  defstruct cache: '', counter: 1, prefix: "iex", on_eof: :stop_evaluator, evaluator_options: []
+  defstruct buffer: "", counter: 1, prefix: "iex", on_eof: :stop_evaluator, evaluator_options: []
   @type t :: %__MODULE__{}
 end
 
@@ -119,7 +119,7 @@ defmodule IEx.Server do
     counter = state.counter
 
     {prompt_type, prefix} =
-      if state.cache != [] do
+      if state.buffer != "" do
         {:continuation_prompt, "..."}
       else
         {:prompt, state.prefix}
@@ -144,7 +144,7 @@ defmodule IEx.Server do
       # Triggered by pressing "i" as the job control switch
       {:input, ^input, {:error, :interrupted}} ->
         io_error("** (EXIT) interrupted")
-        loop(%{state | cache: ''}, evaluator, evaluator_ref)
+        loop(%{state | buffer: ""}, evaluator, evaluator_ref)
 
       # Triggered when IO dies while waiting for input
       {:input, ^input, {:error, :terminated}} ->
@@ -224,7 +224,7 @@ defmodule IEx.Server do
     Process.exit(evaluator, :kill)
     Process.demonitor(evaluator_ref, [:flush])
     evaluator = start_evaluator(state.evaluator_options)
-    loop(%{state | cache: ''}, evaluator, Process.monitor(evaluator))
+    loop(%{state | buffer: ""}, evaluator, Process.monitor(evaluator))
   end
 
   defp handle_take_over(
@@ -242,8 +242,8 @@ defmodule IEx.Server do
     end
   end
 
-  defp handle_take_over({:respawn, evaluator}, _state, evaluator, evaluator_ref, input, _callback) do
-    rerun([], evaluator, evaluator_ref, input)
+  defp handle_take_over({:respawn, evaluator}, state, evaluator, evaluator_ref, input, _callback) do
+    rerun(state.evaluator_options, evaluator, evaluator_ref, input)
   end
 
   defp handle_take_over({:continue, evaluator}, state, evaluator, evaluator_ref, input, _callback) do
@@ -254,18 +254,18 @@ defmodule IEx.Server do
 
   defp handle_take_over(
          {:DOWN, evaluator_ref, :process, evaluator, :normal},
-         _state,
+         state,
          evaluator,
          evaluator_ref,
          input,
          _callback
        ) do
-    rerun([], evaluator, evaluator_ref, input)
+    rerun(state.evaluator_options, evaluator, evaluator_ref, input)
   end
 
   defp handle_take_over(
          {:DOWN, evaluator_ref, :process, evaluator, reason},
-         _state,
+         state,
          evaluator,
          evaluator_ref,
          input,
@@ -281,7 +281,7 @@ defmodule IEx.Server do
         io_error("** (IEx.Error) #{type} when printing EXIT message: #{inspect(detail)}")
     end
 
-    rerun([], evaluator, evaluator_ref, input)
+    rerun(state.evaluator_options, evaluator, evaluator_ref, input)
   end
 
   defp handle_take_over(_, state, _evaluator, _evaluator_ref, _input, callback) do

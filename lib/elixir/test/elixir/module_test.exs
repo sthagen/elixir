@@ -490,10 +490,10 @@ defmodule ModuleTest do
         "tuple, got: {:foo, 256}"
 
     assert_raise ArgumentError, message, fn ->
-      Module.create(Foo, contents, __ENV__)
+      Module.create(MakeOverridable, contents, __ENV__)
     end
   after
-    purge(Foo)
+    purge(MakeOverridable)
   end
 
   test "raise when called with already compiled module" do
@@ -564,5 +564,20 @@ defmodule ModuleTest do
         refute Module.has_attribute?(__MODULE__, :foo)
       end
     end
+  end
+
+  test "@on_load" do
+    Process.register(self(), :on_load_test_process)
+
+    defmodule OnLoadTest do
+      @on_load :on_load
+
+      defp on_load do
+        send(:on_load_test_process, :on_loaded)
+        :ok
+      end
+    end
+
+    assert_received :on_loaded
   end
 end

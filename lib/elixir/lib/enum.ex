@@ -1593,7 +1593,11 @@ defmodule Enum do
   defp max_sort_fun(module) when is_atom(module), do: &(module.compare(&1, &2) != :lt)
 
   @doc false
-  @spec max_by(t, (element -> any), (() -> empty_result)) :: element | empty_result
+  @spec max_by(
+          t,
+          (element -> any),
+          (() -> empty_result) | (element, element -> boolean) | module()
+        ) :: element | empty_result
         when empty_result: any
   def max_by(enumerable, fun, empty_fallback)
       when is_function(fun, 1) and is_function(empty_fallback, 0) do
@@ -1644,12 +1648,6 @@ defmodule Enum do
       nil
 
   """
-  @spec max_by(
-          t,
-          (element -> any),
-          (element, element -> boolean) | module()
-        ) :: element | empty_result
-        when empty_result: any
   @spec max_by(
           t,
           (element -> any),
@@ -1767,7 +1765,11 @@ defmodule Enum do
   defp min_sort_fun(module) when is_atom(module), do: &(module.compare(&1, &2) != :gt)
 
   @doc false
-  @spec min_by(t, (element -> any), (() -> empty_result)) :: element | empty_result
+  @spec min_by(
+          t,
+          (element -> any),
+          (() -> empty_result) | (element, element -> boolean) | module()
+        ) :: element | empty_result
         when empty_result: any
   def min_by(enumerable, fun, empty_fallback)
       when is_function(fun, 1) and is_function(empty_fallback, 0) do
@@ -1818,12 +1820,6 @@ defmodule Enum do
       nil
 
   """
-  @spec min_by(
-          t,
-          (element -> any),
-          (element, element -> boolean) | module()
-        ) :: element | empty_result
-        when empty_result: any
   @spec min_by(
           t,
           (element -> any),
@@ -3169,10 +3165,10 @@ defmodule Enum do
   end
 
   @doc """
-  Zips corresponding elements from two enumerables into one list
+  Zips corresponding elements from two enumerables into a list
   of tuples.
 
-  The zipping finishes as soon as any enumerable completes.
+  The zipping finishes as soon as either enumerable completes.
 
   ## Examples
 
@@ -3195,7 +3191,7 @@ defmodule Enum do
 
   @doc """
   Zips corresponding elements from a finite collection of enumerables
-  into one list of tuples.
+  into a list of tuples.
 
   The zipping finishes as soon as any enumerable in the given collection completes.
 
@@ -3214,6 +3210,70 @@ defmodule Enum do
 
   def zip(enumerables) do
     Stream.zip(enumerables).({:cont, []}, &{:cont, [&1 | &2]})
+    |> elem(1)
+    |> :lists.reverse()
+  end
+
+  @doc """
+  Zips corresponding elements from two enumerables into a list, transforming them with
+  the `zip_fun` function as it goes.
+
+  The corresponding elements from each collection are passed to the provided 2-arity `zip_fun` function in turn.
+  Returns a list that contains the result of calling `zip_fun` for each pair of elements.
+
+  The zipping finishes as soon as either enumerable runs out of elements.
+
+  ## Examples
+
+      iex> Enum.zip_with([1, 2], [3, 4], fn x, y -> x + y end)
+      [4, 6]
+
+      iex> Enum.zip_with([1, 2], [3, 4, 5, 6], fn x, y -> x + y end)
+      [4, 6]
+
+      iex> Enum.zip_with([1, 2, 5, 6], [3, 4], fn x, y -> x + y end)
+      [4, 6]
+
+  """
+  @doc since: "1.12.0"
+  @spec zip_with(t, t, (enumerable1_elem :: term, enumerable2_elem :: term -> term)) :: [term]
+  def zip_with(enumerable1, enumerable2, zip_fun)
+      when is_list(enumerable1) and is_list(enumerable2) and is_function(zip_fun, 2) do
+    zip_list(enumerable1, enumerable2, zip_fun)
+  end
+
+  def zip_with(enumerable1, enumerable2, zip_fun) when is_function(zip_fun, 2) do
+    # zip_with/2 passes a list to the zip_fun containing the nth element from each enumerable
+    # That's different from zip_with/3 where each element is a different argument to the zip_fun
+    # apply/2 ensures that zip_fun gets the right number of arguments.
+    zip_with([enumerable1, enumerable2], &apply(zip_fun, &1))
+  end
+
+  @doc """
+  Zips corresponding elements from a finite collection of enumerables into list, transforming them with
+  the `zip_fun` function as it goes.
+
+  The first element from each of the enums in `enumerables` will be put into a list which is then passed to
+  the 1-arity `zip_fun` function. Then the second elements from each of the enums are put into a list and passed to
+  `zip_fun`, and so on until any one of the enums in `enumerables` runs out of elements.
+
+  Returns a list with all the results of calling `zip_fun`.
+
+  ## Examples
+
+      iex> Enum.zip_with([[1, 2], [3, 4], [5, 6]], fn [x, y, z] -> x + y + z end)
+      [9, 12]
+
+      iex> Enum.zip_with([[1, 2], [3, 4]], fn [x, y] -> x + y end)
+      [4, 6]
+
+  """
+  @doc since: "1.12.0"
+  @spec zip_with(t, ([term] -> term)) :: [term]
+  def zip_with([], _fun), do: []
+
+  def zip_with(enumerables, zip_fun) do
+    Stream.zip_with(enumerables, zip_fun).({:cont, []}, &{:cont, [&1 | &2]})
     |> elem(1)
     |> :lists.reverse()
   end
@@ -3748,13 +3808,16 @@ defmodule Enum do
   end
 
   ## zip
-
-  defp zip_list([h1 | next1], [h2 | next2]) do
-    [{h1, h2} | zip_list(next1, next2)]
+  defp zip_list(enumerable1, enumerable2) do
+    zip_list(enumerable1, enumerable2, fn x, y -> {x, y} end)
   end
 
-  defp zip_list(_, []), do: []
-  defp zip_list([], _), do: []
+  defp zip_list([head1 | next1], [head2 | next2], fun) do
+    [fun.(head1, head2) | zip_list(next1, next2, fun)]
+  end
+
+  defp zip_list(_, [], _fun), do: []
+  defp zip_list([], _, _fun), do: []
 end
 
 defimpl Enumerable, for: List do

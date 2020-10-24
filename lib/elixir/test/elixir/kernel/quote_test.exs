@@ -62,7 +62,6 @@ defmodule Kernel.QuoteTest do
 
   test "operator precedence" do
     assert {:+, _, [{:+, _, [1, _]}, 1]} = quote(do: 1 + Foo.l() + 1)
-    assert {:+, _, [{:+, _, [1, _]}, 1]} = quote(do: 1 + Foo.l() + 1)
     assert {:+, _, [1, {_, _, [{:+, _, [1]}]}]} = quote(do: 1 + Foo.l(+1))
   end
 
@@ -203,7 +202,6 @@ defmodule Kernel.QuoteTest do
 
   test "when" do
     assert [{:->, _, [[{:when, _, [1, 2, 3, 4]}], 5]}] = quote(do: (1, 2, 3 when 4 -> 5))
-    assert [{:->, _, [[{:when, _, [1, 2, 3, 4]}], 5]}] = quote(do: (1, 2, 3 when 4 -> 5))
 
     assert [{:->, _, [[{:when, _, [1, 2, 3, {:when, _, [4, 5]}]}], 6]}] =
              quote(do: (1, 2, 3 when 4 when 5 -> 6))
@@ -261,11 +259,6 @@ defmodule Kernel.QuoteTest do
     assert quote(do: +1.foo) == quote(do: +1.foo)
     assert quote(do: (@1).foo) == quote(do: (@1).foo)
     assert quote(do: &1.foo) == quote(do: &1.foo)
-  end
-
-  test "operators slash arity" do
-    assert {:/, _, [{:+, _, _}, 2]} = quote(do: + / 2)
-    assert {:/, _, [{:&&, _, _}, 3]} = quote(do: && / 3)
   end
 
   test "pipe precedence" do

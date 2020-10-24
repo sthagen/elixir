@@ -139,7 +139,6 @@ defmodule Mix.Tasks.TestTest do
 
                Percentage | Module
                -----------|--------------------------
-                  100.00% | Bar
                   100.00% | Bar.Protocol
                   100.00% | Bar.Protocol.BitString
                -----------|--------------------------
@@ -405,6 +404,31 @@ defmodule Mix.Tasks.TestTest do
 
         refute output =~ "==> foo"
         refute output =~ "Paths given to \"mix test\" did not match any directory/file"
+      end)
+    end
+  end
+
+  describe "--warnings-as-errors" do
+    test "fail on warning in tests" do
+      in_fixture("test_stale", fn ->
+        File.write!("lib/warning.ex", """
+        unused_compile_var = 1
+        """)
+
+        File.write!("test/warning_test.exs", """
+        defmodule WarningTest do
+          use ExUnit.Case
+
+          test "warning" do
+            unused_test_var = 1
+          end
+        end
+        """)
+
+        output = mix(["test", "--warnings-as-errors", "test/warning_test.exs"])
+        assert output =~ "variable \"unused_compile_var\" is unused"
+        assert output =~ "variable \"unused_test_var\" is unused"
+        assert output =~ "Compilation failed due to warnings"
       end)
     end
   end

@@ -1348,7 +1348,7 @@ defmodule Code do
           | {:error, :module_not_found | :chunk_not_found | {:invalid_chunk, binary}}
         when annotation: :erl_anno.anno(),
              beam_language: :elixir | :erlang | atom(),
-             doc_content: %{required(binary) => binary} | :none | :hidden,
+             doc_content: %{optional(binary) => binary} | :none | :hidden,
              doc_element:
                {{kind :: atom, function_name :: atom, arity}, annotation, signature, doc_content,
                 metadata},
@@ -1373,8 +1373,16 @@ defmodule Code do
       :error ->
         case :code.which(module) do
           :preloaded ->
-            path = Path.join([:code.lib_dir(:erts), "doc", "chunks", "#{module}.chunk"])
-            fetch_docs_from_chunk(path)
+            # The erts directory is not necessarily included in releases
+            # unless it is listed as an extra application.
+            case :code.lib_dir(:erts) do
+              path when is_list(path) ->
+                path = Path.join([path, "doc", "chunks", "#{module}.chunk"])
+                fetch_docs_from_chunk(path)
+
+              {:error, _} ->
+                {:error, :chunk_not_found}
+            end
 
           _ ->
             {:error, :module_not_found}

@@ -1,62 +1,9 @@
-Code.require_file("../../test_helper.exs", __DIR__)
+Code.require_file("type_helper.exs", __DIR__)
 
 defmodule Module.Types.ExprTest do
   use ExUnit.Case, async: true
-  import Module.Types.Expr
-  alias Module.Types
-  alias Module.Types.Infer
 
-  defmacrop quoted_expr(vars \\ [], body) do
-    quote do
-      {vars, body} = unquote(Macro.escape(expand_expr(vars, body)))
-
-      body
-      |> of_expr(new_stack(), new_context(vars))
-      |> lift_result()
-    end
-  end
-
-  defp expand_expr(vars, expr) do
-    fun =
-      quote do
-        fn unquote(vars) -> unquote(expr) end
-      end
-
-    {ast, _env} = :elixir_expand.expand(fun, __ENV__)
-    {:fn, _, [{:->, _, [[vars], body]}]} = ast
-    {vars, body}
-  end
-
-  defp new_context(vars) do
-    context =
-      Types.context(
-        "expr_test.ex",
-        TypesTest,
-        {:test, 0},
-        [],
-        Module.ParallelChecker.test_cache()
-      )
-
-    Enum.reduce(vars, context, fn var, context ->
-      {_type, context} = Infer.new_var(var, context)
-      context
-    end)
-  end
-
-  defp new_stack() do
-    %{
-      Types.stack()
-      | last_expr: {:foo, [], nil}
-    }
-  end
-
-  defp lift_result({:ok, type, context}) do
-    {:ok, Types.lift_type(type, context)}
-  end
-
-  defp lift_result({:error, %{warnings: [{Types, reason, location} | _]}}) do
-    {:error, {reason, location}}
-  end
+  import TypeHelper
 
   defmodule :"Elixir.Module.Types.ExprTest.Struct" do
     defstruct foo: :atom, bar: 123, baz: %{}
@@ -89,132 +36,9 @@ defmodule Module.Types.ExprTest do
   end
 
   test "tuple" do
-    assert quoted_expr({}) == {:ok, {:tuple, []}}
-    assert quoted_expr({:a}) == {:ok, {:tuple, [{:atom, :a}]}}
-    assert quoted_expr({:a, 123}) == {:ok, {:tuple, [{:atom, :a}, :integer]}}
-  end
-
-  test "map" do
-    assert quoted_expr(%{}) == {:ok, {:map, []}}
-    assert quoted_expr(%{a: :b}) == {:ok, {:map, [{:required, {:atom, :a}, {:atom, :b}}]}}
-    assert quoted_expr([a], %{123 => a}) == {:ok, {:map, [{:required, :integer, {:var, 0}}]}}
-
-    assert quoted_expr(%{123 => :foo, 456 => :bar}) ==
-             {:ok, {:map, [{:required, :integer, {:union, [{:atom, :bar}, {:atom, :foo}]}}]}}
-  end
-
-  test "struct" do
-    assert quoted_expr(%:"Elixir.Module.Types.ExprTest.Struct"{}) ==
-             {:ok,
-              {:map,
-               [
-                 {:required, {:atom, :__struct__}, {:atom, Module.Types.ExprTest.Struct}},
-                 {:required, {:atom, :bar}, :integer},
-                 {:required, {:atom, :baz}, {:map, []}},
-                 {:required, {:atom, :foo}, {:atom, :atom}}
-               ]}}
-
-    assert quoted_expr(%:"Elixir.Module.Types.ExprTest.Struct"{foo: 123, bar: :atom}) ==
-             {:ok,
-              {:map,
-               [
-                 {:required, {:atom, :__struct__}, {:atom, Module.Types.ExprTest.Struct}},
-                 {:required, {:atom, :baz}, {:map, []}},
-                 {:required, {:atom, :foo}, :integer},
-                 {:required, {:atom, :bar}, {:atom, :atom}}
-               ]}}
-  end
-
-  test "map field" do
-    assert quoted_expr(%{foo: :bar}.foo) == {:ok, {:atom, :bar}}
-
-    assert quoted_expr(
-             (
-               map = %{foo: :bar}
-               map.foo
-             )
-           ) == {:ok, {:atom, :bar}}
-
-    assert quoted_expr(
-             [map],
-             (
-               map.foo
-               map.bar
-               map
-             )
-           ) ==
-             {:ok,
-              {:map,
-               [
-                 {:required, {:atom, :bar}, {:var, 0}},
-                 {:optional, :dynamic, :dynamic},
-                 {:required, {:atom, :foo}, {:var, 1}}
-               ]}}
-
-    assert quoted_expr(
-             [map],
-             (
-               :foo = map.foo
-               :bar = map.bar
-               map
-             )
-           ) ==
-             {:ok,
-              {:map,
-               [
-                 {:required, {:atom, :bar}, {:atom, :bar}},
-                 {:optional, :dynamic, :dynamic},
-                 {:required, {:atom, :foo}, {:atom, :foo}}
-               ]}}
-
-    assert {:error,
-            {{:unable_unify,
-              {:map, [{:required, {:atom, :bar}, {:var, 1}}, {:optional, :dynamic, :dynamic}]},
-              {:map, [{:required, {:atom, :foo}, {:atom, :foo}}]}, _},
-             _}} =
-             quoted_expr(
-               (
-                 map = %{foo: :foo}
-                 map.bar
-               )
-             )
-  end
-
-  test "struct field" do
-    assert quoted_expr(%File.Stat{}.mtime) == {:ok, {:atom, nil}}
-    assert quoted_expr(%File.Stat{mtime: 123}.mtime) == {:ok, :integer}
-
-    assert quoted_expr(
-             (
-               map = %File.Stat{}
-               map.mtime
-             )
-           ) == {:ok, {:atom, nil}}
-
-    assert quoted_expr(
-             (
-               map = %File.Stat{mtime: 123}
-               map.mtime
-             )
-           ) == {:ok, :integer}
-
-    assert {:error,
-            {{:unable_unify,
-              {:map, [{:required, {:atom, :foo}, {:var, 0}}, {:optional, :dynamic, :dynamic}]},
-              {:map, [{:required, {:atom, :__struct__}, {:atom, File.Stat}} | _]}, _},
-             _}} = quoted_expr(%File.Stat{}.foo)
-
-    assert {:error,
-            {{:unable_unify,
-              {:map, [{:required, {:atom, :foo}, {:var, 1}}, {:optional, :dynamic, :dynamic}]},
-              {:map, [{:required, {:atom, :__struct__}, {:atom, File.Stat}} | _]}, _},
-             _}} =
-             quoted_expr(
-               (
-                 map = %File.Stat{}
-                 map.foo
-               )
-             )
+    assert quoted_expr({}) == {:ok, {:tuple, 0, []}}
+    assert quoted_expr({:a}) == {:ok, {:tuple, 1, [{:atom, :a}]}}
+    assert quoted_expr({:a, 123}) == {:ok, {:tuple, 2, [{:atom, :a}, :integer]}}
   end
 
   # Use module attribute to avoid formatter adding parentheses
@@ -256,13 +80,15 @@ defmodule Module.Types.ExprTest do
                )
              ) == {:ok, :binary}
 
-      assert quoted_expr([foo], {<<foo::integer>>, foo}) == {:ok, {:tuple, [:binary, :integer]}}
-      assert quoted_expr([foo], {<<foo::binary>>, foo}) == {:ok, {:tuple, [:binary, :binary]}}
+      assert quoted_expr([foo], {<<foo::integer>>, foo}) ==
+               {:ok, {:tuple, 2, [:binary, :integer]}}
+
+      assert quoted_expr([foo], {<<foo::binary>>, foo}) == {:ok, {:tuple, 2, [:binary, :binary]}}
 
       assert quoted_expr([foo], {<<foo::utf8>>, foo}) ==
-               {:ok, {:tuple, [:binary, {:union, [:integer, :binary]}]}}
+               {:ok, {:tuple, 2, [:binary, {:union, [:integer, :binary]}]}}
 
-      assert {:error, {{:unable_unify, :integer, :binary, _}, _}} =
+      assert {:error, {:unable_unify, {:integer, :binary, _}}} =
                quoted_expr(
                  (
                    foo = 0
@@ -270,15 +96,15 @@ defmodule Module.Types.ExprTest do
                  )
                )
 
-      assert {:error, {{:unable_unify, :binary, :integer, _}, _}} =
+      assert {:error, {:unable_unify, {:binary, :integer, _}}} =
                quoted_expr([foo], <<foo::binary-0, foo::integer>>)
     end
   end
 
   test "variables" do
     assert quoted_expr([foo], foo) == {:ok, {:var, 0}}
-    assert quoted_expr([foo], {foo}) == {:ok, {:tuple, [{:var, 0}]}}
-    assert quoted_expr([foo, bar], {foo, bar}) == {:ok, {:tuple, [{:var, 0}, {:var, 1}]}}
+    assert quoted_expr([foo], {foo}) == {:ok, {:tuple, 1, [{:var, 0}]}}
+    assert quoted_expr([foo, bar], {foo, bar}) == {:ok, {:tuple, 2, [{:var, 0}, {:var, 1}]}}
   end
 
   test "pattern match" do
@@ -424,27 +250,43 @@ defmodule Module.Types.ExprTest do
            ) == {:ok, {:var, 0}}
   end
 
-  test "for" do
-    assert quoted_expr(
-             [list],
-             for(
-               foo <- list,
-               is_integer(foo),
-               do: foo == 123
-             )
-           ) == {:ok, :dynamic}
-
-    assert quoted_expr(
-             [list, bar],
-             (
+  describe "for comprehension" do
+    test "with generators and filters" do
+      assert quoted_expr(
+               [list],
                for(
                  foo <- list,
-                 is_integer(bar),
+                 is_integer(foo),
                  do: foo == 123
                )
+             ) == {:ok, :dynamic}
+    end
 
-               bar
-             )
-           ) == {:ok, {:var, 0}}
+    test "with unused return" do
+      assert quoted_expr(
+               [list, bar],
+               (
+                 for(
+                   foo <- list,
+                   is_integer(bar),
+                   do: foo == 123
+                 )
+
+                 bar
+               )
+             ) == {:ok, {:var, 0}}
+    end
+
+    test "with reduce" do
+      assert quoted_expr(
+               [],
+               for(i <- [1, 2, 3], do: (acc -> i + acc), reduce: 0)
+             ) == {:ok, :dynamic}
+
+      assert quoted_expr(
+               [],
+               for(i <- [1, 2, 3], do: (_ -> i), reduce: nil)
+             ) == {:ok, :dynamic}
+    end
   end
 end

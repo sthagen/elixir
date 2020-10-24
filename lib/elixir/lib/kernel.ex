@@ -305,6 +305,11 @@ defmodule Kernel do
       iex> binary_part("Hello", 5, -3)
       "llo"
 
+  An `ArgumentError` is raised when the length is outside of the binary:
+
+      binary_part("Hello", 0, 10)
+      ** (ArgumentError) argument error
+
   """
   @doc guard: true
   @spec binary_part(binary, non_neg_integer, integer) :: binary
@@ -1665,7 +1670,7 @@ defmodule Kernel do
   If `left` is `true`, returns `true`; otherwise returns `right`.
 
   Requires only the `left` operand to be a boolean since it short-circuits.
-  If the `left` operand is not a boolean, an `ArgumentError` exception is
+  If the `left` operand is not a boolean, a `BadBooleanError` exception is
   raised.
 
   Allowed in guard tests.
@@ -1697,7 +1702,7 @@ defmodule Kernel do
   If `left` is `false`, returns `false`; otherwise returns `right`.
 
   Requires only the `left` operand to be a boolean since it short-circuits. If
-  the `left` operand is not a boolean, an `ArgumentError` exception is raised.
+  the `left` operand is not a boolean, a `BadBooleanError` exception is raised.
 
   Allowed in guard tests.
 
@@ -3182,8 +3187,18 @@ defmodule Kernel do
     end
   end
 
-  # @attribute or @attribute()
-  defp do_at(args, _meta, name, function?, env) when is_atom(args) or args == [] do
+  # @attribute()
+  defp do_at([], meta, name, function?, env) do
+    IO.warn(
+      "the @#{name}() notation (with parenthesis) is deprecated, please use @#{name} (without parenthesis) instead",
+      Macro.Env.stacktrace(env)
+    )
+
+    do_at(nil, meta, name, function?, env)
+  end
+
+  # @attribute
+  defp do_at(args, _meta, name, function?, env) when is_atom(args) do
     line = env.line
     doc_attr? = :lists.member(name, [:moduledoc, :typedoc, :doc])
 
@@ -4523,7 +4538,7 @@ defmodule Kernel do
             case @enforce_keys do
               [] ->
                 def __struct__(kv) do
-                  Enum.reduce(kv, @struct, fn {key, val}, map ->
+                  Enum.reduce(kv, @__struct__, fn {key, val}, map ->
                     Map.replace!(map, key, val)
                   end)
                 end
@@ -4531,7 +4546,7 @@ defmodule Kernel do
               _ ->
                 def __struct__(kv) do
                   {map, keys} =
-                    Enum.reduce(kv, {@struct, @enforce_keys}, fn {key, val}, {map, keys} ->
+                    Enum.reduce(kv, {@__struct__, @enforce_keys}, fn {key, val}, {map, keys} ->
                       {Map.replace!(map, key, val), List.delete(keys, key)}
                     end)
 
@@ -4553,20 +4568,20 @@ defmodule Kernel do
             _ = @enforce_keys
 
             def __struct__(kv) do
-              :lists.foldl(fn {key, val}, acc -> Map.replace!(acc, key, val) end, @struct, kv)
+              :lists.foldl(fn {key, val}, acc -> Map.replace!(acc, key, val) end, @__struct__, kv)
             end
           end
       end
 
     quote do
-      if Module.has_attribute?(__MODULE__, :struct) do
+      if Module.has_attribute?(__MODULE__, :__struct__) do
         raise ArgumentError,
               "defstruct has already been called for " <>
                 "#{Kernel.inspect(__MODULE__)}, defstruct can only be called once per module"
       end
 
       {struct, keys, derive} = Kernel.Utils.defstruct(__MODULE__, unquote(fields))
-      @struct struct
+      @__struct__ struct
       @enforce_keys keys
 
       case derive do
@@ -4575,7 +4590,7 @@ defmodule Kernel do
       end
 
       def __struct__() do
-        @struct
+        @__struct__
       end
 
       unquote(builder)

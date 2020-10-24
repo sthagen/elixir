@@ -45,7 +45,7 @@ defmodule Map do
       map.foo
       #=> "bar"
       map.non_existing_key
-      #=> ** (KeyError) key :non_existing_key not found in: %{baz: "bong", foo: "bar"}
+      ** (KeyError) key :non_existing_key not found in: %{baz: "bong", foo: "bar"}
 
   > Note: do not add parens when accessing fields, such as in `data.key()`.
   > If parenthesis are used, Elixir will consider it to be a function call
@@ -67,8 +67,10 @@ defmodule Map do
       iex> %{a: a} = %{:a => 1, "b" => 2, [:c, :e, :e] => 3}
       iex> a
       1
-      iex> %{:c => 3} = %{:a => 1, 2 => :b}
-      ** (MatchError) no match of right hand side value: %{2 => :b, :a => 1}
+
+  But this will raise a `MatchError` exception:
+
+      %{:c => 3} = %{:a => 1, 2 => :b}
 
   Variables can be used as map keys both when writing map literals as well as
   when matching:
@@ -86,8 +88,10 @@ defmodule Map do
       iex> map = %{one: 1, two: 2}
       iex> %{map | one: "one"}
       %{one: "one", two: 2}
-      iex> %{map | three: 3}
-      ** (KeyError) key :three not found
+
+  When a key that does not exist in the map is updated a `KeyError` exception will be raised:
+
+      %{map | three: 3}
 
   The functions in this module that need to find a specific key work in logarithmic time.
   This means that the time it takes to find keys grows as the map grows, but it's not
@@ -240,8 +244,8 @@ defmodule Map do
   @doc """
   Fetches the value for a specific `key` in the given `map`.
 
-  If `map` contains the given `key` with value `value`, then `{:ok, value}` is
-  returned. If `map` doesn't contain `key`, `:error` is returned.
+  If `map` contains the given `key` then its value is returned in the shape of `{:ok, value}`.
+  If `map` doesn't contain `key`, `:error` is returned.
 
   Inlined by the compiler.
 
@@ -260,7 +264,7 @@ defmodule Map do
   Fetches the value for a specific `key` in the given `map`, erroring out if
   `map` doesn't contain `key`.
 
-  If `map` contains the given `key`, the corresponding value is returned. If
+  If `map` contains `key`, the corresponding value is returned. If
   `map` doesn't contain `key`, a `KeyError` exception is raised.
 
   Inlined by the compiler.
@@ -435,7 +439,7 @@ defmodule Map do
   @doc """
   Gets the value for a specific `key` in `map`.
 
-  If `key` is present in `map` with value `value`, then `value` is
+  If `key` is present in `map` then its value `value` is
   returned. Otherwise, `default` is returned.
 
   If `default` is not provided, `nil` is used.
@@ -469,7 +473,7 @@ defmodule Map do
   @doc """
   Gets the value for a specific `key` in `map`.
 
-  If `key` is present in `map` with value `value`, then `value` is
+  If `key` is present in `map` then its value `value` is
   returned. Otherwise, `fun` is evaluated and its result is returned.
 
   This is useful if the default value is very expensive to calculate or
@@ -597,8 +601,8 @@ defmodule Map do
   @doc """
   Updates the `key` in `map` with the given function.
 
-  If `key` is present in `map` with value `value`, `fun` is invoked with
-  argument `value` and its result is used as the new value of `key`. If `key` is
+  If `key` is present in `map` then the existing value is passed to `fun` and its result is
+  used as the updated value of `key`. If `key` is
   not present in `map`, `default` is inserted as the value of `key`. The default
   value will not be passed through the update function.
 
@@ -626,10 +630,10 @@ defmodule Map do
   end
 
   @doc """
-  Returns and removes the value associated with `key` in `map`.
+  Removes the value associated with `key` in `map` and returns the value and the updated map.
 
-  If `key` is present in `map` with value `value`, `{value, new_map}` is
-  returned where `new_map` is the result of removing `key` from `map`. If `key`
+  If `key` is present in `map`, it returns `{value, updated_map}` where `value` is the value of
+  the key and `updated_map` is the result of removing `key` from `map`. If `key`
   is not present in `map`, `{default, map}` is returned.
 
   ## Examples
@@ -642,7 +646,7 @@ defmodule Map do
       {3, %{a: 1}}
 
   """
-  @spec pop(map, key, value) :: {value, map}
+  @spec pop(map, key, default) :: {value, updated_map :: map} | {default, map} when default: value
   def pop(map, key, default \\ nil) do
     case :maps.take(key, map) do
       {_, _} = tuple -> tuple
@@ -651,8 +655,8 @@ defmodule Map do
   end
 
   @doc """
-  Returns and removes the value associated with `key` in `map` or raises
-  if `key` is not present.
+  Removes the value associated with `key` in `map` and returns the value
+  and the updated map, or it raises if `key` is not present.
 
   Behaves the same as `pop/3` but raises if `key` is not present in `map`.
 
@@ -667,7 +671,7 @@ defmodule Map do
 
   """
   @doc since: "1.10.0"
-  @spec pop!(map, key) :: {value, map}
+  @spec pop!(map, key) :: {value, updated_map :: map}
   def pop!(map, key) do
     case :maps.take(key, map) do
       {_, _} = tuple -> tuple
@@ -678,8 +682,8 @@ defmodule Map do
   @doc """
   Lazily returns and removes the value associated with `key` in `map`.
 
-  If `key` is present in `map` with value `value`, `{value, new_map}` is
-  returned where `new_map` is the result of removing `key` from `map`. If `key`
+  If `key` is present in `map`, it returns `{value, new_map}` where `value` is the value of
+  the key and `new_map` is the result of removing `key` from `map`. If `key`
   is not present in `map`, `{fun_result, map}` is returned, where `fun_result`
   is the result of applying `fun`.
 
@@ -795,8 +799,8 @@ defmodule Map do
   @doc """
   Updates `key` with the given function.
 
-  If `key` is present in `map` with value `value`, `fun` is invoked with
-  argument `value` and its result is used as the new value of `key`. If `key` is
+  If `key` is present in `map` then the existing value is passed to `fun` and its result is
+  used as the updated value of `key`. If `key` is
   not present in `map`, a `KeyError` exception is raised.
 
   ## Examples
@@ -808,7 +812,7 @@ defmodule Map do
       ** (KeyError) key :b not found in: %{a: 1}
 
   """
-  @spec update!(map, key, (current_value :: value -> new_value :: value)) :: map
+  @spec update!(map, key, (existing_value :: value -> updated_value :: value)) :: map
   def update!(map, key, fun) when is_function(fun, 1) do
     value = fetch!(map, key)
     put(map, key, fun.(value))
@@ -837,7 +841,7 @@ defmodule Map do
       iex> Map.get_and_update(%{a: 1}, :b, fn current_value ->
       ...>   {current_value, "new value!"}
       ...> end)
-      {nil, %{b: "new value!", a: 1}}
+      {nil, %{a: 1, b: "new value!"}}
 
       iex> Map.get_and_update(%{a: 1}, :a, fn _ -> :pop end)
       {1, %{}}

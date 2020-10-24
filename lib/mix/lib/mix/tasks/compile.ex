@@ -57,6 +57,7 @@ defmodule Mix.Tasks.Compile do
     * `--no-protocol-consolidation` - skips protocol consolidation
     * `--no-validate-compile-env` - does not validate the application compile environment
     * `--return-errors` - returns error status and diagnostics instead of exiting on error
+    * `--warnings-as-errors` - exit with non-zero status if compilation has one or more warnings
 
   """
 
@@ -64,9 +65,17 @@ defmodule Mix.Tasks.Compile do
   Returns all compilers.
   """
   def compilers(config \\ Mix.Project.config()) do
-    # TODO: Deprecate :xref on v1.12
     compilers = config[:compilers] || Mix.compilers()
-    List.delete(compilers, :xref)
+
+    if :xref in compilers do
+      IO.warn(
+        "the :xref compiler is deprecated, please remove it from your mix.exs :compilers options"
+      )
+
+      List.delete(compilers, :xref)
+    else
+      compilers
+    end
   end
 
   @impl true

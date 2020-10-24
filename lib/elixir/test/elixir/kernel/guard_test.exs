@@ -310,6 +310,38 @@ defmodule Kernel.GuardTest do
         end
       end
 
+      assert_raise CompileError,
+                   ~r"cannot invoke remote function :erlang\.is_record/2 inside guards",
+                   fn ->
+                     defmodule IsRecord2Usage do
+                       defguard foo(rec) when :erlang.is_record(rec, :tag)
+                     end
+                   end
+
+      assert_raise CompileError,
+                   ~r"cannot invoke remote function :erlang\.is_record/3 inside guards",
+                   fn ->
+                     defmodule IsRecord3Usage do
+                       defguard foo(rec) when :erlang.is_record(rec, :tag, 7)
+                     end
+                   end
+
+      assert_raise CompileError,
+                   ~r"cannot invoke remote function :erlang\.\+\+/2 inside guards",
+                   fn ->
+                     defmodule ListSubtractionUsage do
+                       defguard foo(list) when list ++ []
+                     end
+                   end
+
+      assert_raise CompileError,
+                   ~r"cannot invoke remote function :erlang\.\-\-/2 inside guards",
+                   fn ->
+                     defmodule ListSubtractionUsage do
+                       defguard foo(list) when list -- []
+                     end
+                   end
+
       assert_raise CompileError, ~r"invalid expression in guard", fn ->
         defmodule LocalCallUsage do
           defguard foo(local, call) when local.(call)

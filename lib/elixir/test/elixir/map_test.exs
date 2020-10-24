@@ -193,6 +193,28 @@ defmodule MapTest do
              %{a: 1, b: 2, c: :x, d: 5}
   end
 
+  test "replace/3" do
+    map = %{c: 3, b: 2, a: 1}
+    assert Map.replace(map, :b, 10) == %{c: 3, b: 10, a: 1}
+    assert Map.replace(map, :a, 1) == map
+    assert Map.replace(map, :x, 1) == map
+    assert Map.replace(%{}, :x, 1) == %{}
+  end
+
+  test "replace!/3" do
+    map = %{c: 3, b: 2, a: 1}
+    assert Map.replace!(map, :b, 10) == %{c: 3, b: 10, a: 1}
+    assert Map.replace!(map, :a, 1) == map
+
+    assert_raise KeyError, "key :x not found in: %{a: 1, b: 2, c: 3}", fn ->
+      Map.replace!(map, :x, 10)
+    end
+
+    assert_raise KeyError, "key :x not found in: %{}", fn ->
+      Map.replace!(%{}, :x, 10)
+    end
+  end
+
   test "implements (almost) all functions in Keyword" do
     assert Keyword.__info__(:functions) -- Map.__info__(:functions) == [
              delete: 3,
@@ -225,6 +247,8 @@ defmodule MapTest do
     end
   end
 
+  defp empty_map(), do: %{}
+
   test "structs" do
     assert %ExternalUser{} == %{__struct__: ExternalUser, name: "john", age: 27}
 
@@ -236,10 +260,8 @@ defmodule MapTest do
     %ExternalUser{name: name} = %ExternalUser{}
     assert name == "john"
 
-    map = %{}
-
     assert_raise BadStructError, "expected a struct named MapTest.ExternalUser, got: %{}", fn ->
-      %ExternalUser{map | name: "meg"}
+      %ExternalUser{empty_map() | name: "meg"}
     end
   end
 
