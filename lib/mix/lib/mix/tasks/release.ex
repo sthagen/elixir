@@ -168,7 +168,7 @@ defmodule Mix.Tasks.Release do
 
   You can run the release in daemon mode with the command:
 
-      bin/RELEASE_NAME daemon_iex
+      bin/RELEASE_NAME daemon
 
   In daemon mode, the system is started on the background via
   [run_erl](http://erlang.org/doc/man/run_erl.html). You may also
@@ -1423,7 +1423,7 @@ defmodule Mix.Tasks.Release do
     end
   end
 
-  defp executable!(path), do: File.chmod!(path, 0o744)
+  defp executable!(path), do: File.chmod!(path, 0o755)
 
   # Helper functions
 

@@ -335,7 +335,7 @@ expand({Name, Meta, Kind}, #{context := match} = E) when is_atom(Name), is_atom(
 
     %% Variable is being overridden now
     #{Pair := _} ->
-      NewUnused = var_unused(Pair, Meta, Version, Unused),
+      NewUnused = var_unused(Pair, Meta, Version, Unused, true),
       NewReadCurrent = ReadCurrent#{Pair => Version},
       NewWriteCurrent = (WriteCurrent /= false) andalso WriteCurrent#{Pair => Version},
       Var = {Name, [{version, Version} | Meta], Kind},
@@ -344,7 +344,7 @@ expand({Name, Meta, Kind}, #{context := match} = E) when is_atom(Name), is_atom(
     %% Variable defined for the first time
     _ ->
       NewVars = ordsets:add_element(Pair, ?key(E, vars)),
-      NewUnused = var_unused(Pair, Meta, Version, Unused),
+      NewUnused = var_unused(Pair, Meta, Version, Unused, false),
       NewReadCurrent = ReadCurrent#{Pair => Version},
       NewWriteCurrent = (WriteCurrent /= false) andalso WriteCurrent#{Pair => Version},
       Var = {Name, [{version, Version} | Meta], Kind},
@@ -469,7 +469,7 @@ expand(Other, E) ->
 escape_env_entries(Meta, #{current_vars := {Read, Write}, unused_vars := {Unused, Version}} = Env0) ->
   Env1 = case Env0 of
     #{function := nil} -> Env0;
-    _ -> Env0#{lexical_tracker := nil}
+    _ -> Env0#{lexical_tracker := nil, tracers := []}
   end,
   Current = {maybe_escape_map(Read), maybe_escape_map(Write)},
   Env2 = Env1#{current_vars := Current, unused_vars := {maybe_escape_map(Unused), Version}},
@@ -599,9 +599,9 @@ expand_args(Args, E) ->
 
 %% Match/var helpers
 
-var_unused({Name, Kind}, Meta, Version, Unused) ->
+var_unused({Name, Kind}, Meta, Version, Unused, Override) ->
   case (Kind == nil) andalso should_warn(Meta) of
-    true -> Unused#{{Name, Version} => ?line(Meta)};
+    true -> Unused#{{Name, Version} => {?line(Meta), Override}};
     false -> Unused
   end.
 

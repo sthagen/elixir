@@ -1,4 +1,4 @@
-Code.require_file("../../test_helper.exs", __DIR__)
+Code.require_file("type_helper.exs", __DIR__)
 
 defmodule Module.Types.PatternTest do
   use ExUnit.Case, async: true
@@ -341,6 +341,11 @@ defmodule Module.Types.PatternTest do
 
       assert {:error, {:unable_unify, {{:atom, true}, :tuple, _}}} =
                quoted_head([x], [is_tuple(is_atom(x))])
+    end
+
+    test "nested calls with interesections in guards" do
+      assert quoted_head([x], [:erlang.rem(x, 2)]) == {:ok, [:integer]}
+      assert quoted_head([x], [:erlang.rem(x + x, 2)]) == {:ok, [{:union, [:integer, :float]}]}
     end
 
     test "erlang-only guards" do
