@@ -2447,6 +2447,16 @@ defmodule Kernel do
       iex> get_in(users, ["unknown", :age])
       nil
 
+  Note that `get_in` exists mostly for convenience and parity with
+  functionality found in `put_in` and `update_in`. Given Elixir
+  provides pattern matching, it can often be more expressive for
+  deep data traversal, for example:
+
+      case users do
+        %{"unknown" => %{age: age}} -> age
+        _ -> default_value
+      end
+
   ## Functions as keys
 
   If a key is a function, the function will be invoked passing three
@@ -3873,7 +3883,7 @@ defmodule Kernel do
   end
 
   defp ensure_evaled_var(elem, {index, ast}) do
-    var = {String.to_atom("arg" <> Integer.to_string(index)), [], __MODULE__}
+    var = {String.to_atom("arg" <> Integer.to_string(index + 1)), [], __MODULE__}
     {var, {index + 1, [{var, elem} | ast]}}
   end
 
