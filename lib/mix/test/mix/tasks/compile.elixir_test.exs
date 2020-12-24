@@ -80,7 +80,7 @@ defmodule Mix.Tasks.Compile.ElixirTest do
       """)
 
       message =
-        "Logger.info/1 defined in application :logger is used by the current application but the current application does not directly depend on :logger"
+        "Logger.info/1 defined in application :logger is used by the current application but the current application does not depend on :logger"
 
       assert capture_io(:stderr, fn ->
                Mix.Task.run("compile", [])
@@ -106,6 +106,14 @@ defmodule Mix.Tasks.Compile.ElixirTest do
       assert capture_io(:stderr, fn ->
                Mix.Task.run("compile", [])
              end) == ""
+    end)
+  end
+
+  test "generates manifest even if there isn't any Elixir source code" do
+    in_fixture("compile_erlang", fn ->
+      Mix.Tasks.Compile.Elixir.run([])
+
+      assert File.regular?("_build/dev/lib/sample/.mix/compile.elixir")
     end)
   end
 
@@ -421,6 +429,14 @@ defmodule Mix.Tasks.Compile.ElixirTest do
       assert_received {:mix_shell, :info, ["Compiled lib/a.ex"]}
       assert_received {:mix_shell, :info, ["Compiled lib/b.ex"]}
       purge([A, B])
+
+      # Remove all of the code, we should now get a compilation error
+      File.write!("lib/a.ex", """
+      """)
+
+      assert capture_io(fn ->
+               {:error, _} = Mix.Tasks.Compile.Elixir.run(["--verbose"])
+             end) =~ "A.__struct__/1 is undefined, cannot expand struct A"
     end)
   end
 

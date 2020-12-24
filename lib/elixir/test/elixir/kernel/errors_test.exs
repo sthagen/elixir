@@ -733,16 +733,6 @@ defmodule Kernel.ErrorsTest do
     end
   end
 
-  test "match attribute in module" do
-    msg = "invalid write attribute syntax, you probably meant to use: @foo expression"
-
-    assert_raise ArgumentError, msg, fn ->
-      defmodule MatchAttributeInModule do
-        @foo = 42
-      end
-    end
-  end
-
   test "invalid case clauses" do
     assert_eval_raise CompileError,
                       "nofile:1: expected one argument for :do clauses (->) in \"case\"",
@@ -1234,7 +1224,7 @@ defmodule Kernel.ErrorsTest do
     rescue
       ArgumentError ->
         assert [
-                 {:erlang, :apply, [1, :foo, []], []},
+                 {:erlang, :apply, [1, :foo, []], _},
                  {__MODULE__, :bad_remote_call, 1, [file: _, line: _]} | _
                ] = __STACKTRACE__
     end

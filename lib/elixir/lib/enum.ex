@@ -66,7 +66,7 @@ defprotocol Enumerable do
 
   Returns the accumulator for the next enumeration step.
   """
-  @type reducer :: (term, term -> acc)
+  @type reducer :: (element :: term, current_acc :: acc -> updated_acc :: acc)
 
   @typedoc """
   The result of the reduce operation.
@@ -144,7 +144,7 @@ defprotocol Enumerable do
   Retrieves the number of elements in the `enumerable`.
 
   It should return `{:ok, count}` if you can count the number of elements
-  in the `enumerable`.
+  in `enumerable` without traversing it.
 
   Otherwise it should return `{:error, __MODULE__}` and a default algorithm
   built on top of `reduce/3` that runs in linear time will be used.
@@ -156,8 +156,8 @@ defprotocol Enumerable do
   Checks if an `element` exists within the `enumerable`.
 
   It should return `{:ok, boolean}` if you can check the membership of a
-  given element in the `enumerable` with `===/2` without traversing the whole
-  enumerable.
+  given element in `enumerable` with `===/2` without traversing the whole
+  of it.
 
   Otherwise it should return `{:error, __MODULE__}` and a default algorithm
   built on top of `reduce/3` that runs in linear time will be used.
@@ -188,7 +188,8 @@ defprotocol Enumerable do
   will become too expensive.
 
   On the other hand, the `count/1` function in this protocol should be
-  implemented whenever you can count the number of elements in the collection.
+  implemented whenever you can count the number of elements in the collection without
+  traversing it.
   """
   @spec slice(t) ::
           {:ok, size :: non_neg_integer(), slicing_fun()}
@@ -873,7 +874,6 @@ defmodule Enum do
   @spec each(t, (element -> any)) :: :ok
   def each(enumerable, fun) when is_list(enumerable) do
     :lists.foreach(fun, enumerable)
-    :ok
   end
 
   def each(enumerable, fun) do
@@ -2907,6 +2907,27 @@ defmodule Enum do
   end
 
   @doc """
+  Returns the product of all elements.
+
+  Raises `ArithmeticError` if `enumerable` contains a non-numeric value.
+
+  ## Examples
+
+      iex> Enum.product([])
+      1
+      iex> Enum.product([2, 3, 4])
+      24
+      iex> Enum.product([2.0, 3.0, 4.0])
+      24.0
+
+  """
+  @doc since: "1.12.0"
+  @spec product(t) :: number
+  def product(enumerable) do
+    reduce(enumerable, 1, &*/2)
+  end
+
+  @doc """
   Takes an `amount` of elements from the beginning or the end of the `enumerable`.
 
   If a positive `amount` is given, it takes the `amount` elements from the
@@ -3226,7 +3247,13 @@ defmodule Enum do
   Returns the `enumerable` with each element wrapped in a tuple
   alongside its index.
 
-  If an `offset` is given, we will index from the given offset instead of from zero.
+  May receive a function or an integer offset.
+
+  If an `offset` is given, it will index from the given offset instead of from
+  zero.
+
+  If a `function` is given, it will index by invoking the function for each
+  element and index (zero-based) of the enumerable.
 
   ## Examples
 
@@ -3236,21 +3263,24 @@ defmodule Enum do
       iex> Enum.with_index([:a, :b, :c], 3)
       [a: 3, b: 4, c: 5]
 
+      iex> Enum.with_index([:a, :b, :c], fn element, index -> {index, element} end)
+      [{0, :a}, {1, :b}, {2, :c}]
+
   """
-  @spec with_index(t, integer) :: [{element, index}]
-  def with_index(enumerable, offset \\ 0) do
+  @spec with_index(t, integer) :: [{term, integer}]
+  @spec with_index(t, (element, index -> value)) :: [value] when value: any
+  def with_index(enumerable, fun_or_offset \\ 0)
+
+  def with_index(enumerable, offset) when is_integer(offset) do
     enumerable
-    |> to_list()
-    |> do_with_index(offset)
+    |> map_reduce(offset, fn x, i -> {{x, i}, i + 1} end)
+    |> elem(0)
   end
 
-  @spec do_with_index(list, integer) :: [{element, index}]
-  defp do_with_index([], _) do
-    []
-  end
-
-  defp do_with_index([head | tail], index) do
-    [{head, index} | do_with_index(tail, index + 1)]
+  def with_index(enumerable, fun) when is_function(fun, 2) do
+    enumerable
+    |> map_reduce(0, fn x, i -> {fun.(x, i), i + 1} end)
+    |> elem(0)
   end
 
   @doc """
@@ -3924,6 +3954,7 @@ defimpl Enumerable, for: List do
   def reduce([], {:cont, acc}, _fun), do: {:done, acc}
   def reduce([head | tail], {:cont, acc}, fun), do: reduce(tail, fun.(head, acc), fun)
 
+  @doc false
   def slice(_list, _start, 0, _size), do: []
   def slice(list, start, count, size) when start + count == size, do: list |> drop(start)
   def slice(list, start, count, _size), do: list |> drop(start) |> take(count)
