@@ -418,6 +418,14 @@ defmodule KernelTest do
     assert exception_or_map?(%RuntimeError{}, RuntimeError) == true
   end
 
+  test "then/2" do
+    assert 1 |> then(fn x -> x * 2 end) == 2
+
+    assert_raise FunctionClauseError, fn ->
+      1 |> then(fn x, y -> x * y end)
+    end
+  end
+
   test "if/2 boolean optimization does not leak variables during expansion" do
     if false do
       :ok
@@ -1276,6 +1284,16 @@ defmodule KernelTest do
       map when is_map_key(map, :a) -> true
       _ -> flunk("invalid guard")
     end
+  end
+
+  test "tap/1" do
+    import ExUnit.CaptureIO
+
+    assert capture_io(fn ->
+             tap("foo", &IO.puts/1)
+           end) == "foo\n"
+
+    assert 1 = tap(1, fn x -> x + 1 end)
   end
 
   test "tl/1" do

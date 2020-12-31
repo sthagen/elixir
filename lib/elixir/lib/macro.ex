@@ -270,7 +270,7 @@ defmodule Macro do
   def pipe(expr, {:fn, _, _}, _integer) do
     raise ArgumentError,
           "cannot pipe #{to_string(expr)} into an anonymous function without" <>
-            " calling the function; use something like (fn ... end).() or" <>
+            " calling the function; use Kernel.then/2 instead or" <>
             " define the anonymous function as a regular private function"
   end
 
@@ -541,9 +541,14 @@ defmodule Macro do
       iex> Macro.decompose_call(quote(do: 42))
       :error
 
+      iex> Macro.decompose_call(quote(do: {:foo, [], []}))
+      :error
+
   """
   @spec decompose_call(t()) :: {atom, [t()]} | {t(), atom, [t()]} | :error
   def decompose_call(ast)
+
+  def decompose_call({:{}, _, args}) when is_list(args), do: :error
 
   def decompose_call({{:., _, [remote, function]}, _, args})
       when is_tuple(remote) or is_atom(remote),
