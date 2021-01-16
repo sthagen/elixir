@@ -316,8 +316,8 @@ defmodule ExUnit.Case do
   @doc """
   Defines a test with `message`.
 
-  The test may also define a `var`, which will pattern match
-  on the test context. For more information on contexts, see
+  The test may also define a pattern, which will be matched
+  against the test context. For more information on contexts, see
   `ExUnit.Callbacks`.
 
   ## Examples
@@ -328,6 +328,14 @@ defmodule ExUnit.Case do
 
   """
   defmacro test(message, var \\ quote(do: _), contents) do
+    unless is_tuple(var) do
+      IO.warn(
+        "test context is always a map. The pattern " <>
+          "#{inspect(Macro.to_string(var))} will never match",
+        Macro.Env.stacktrace(__CALLER__)
+      )
+    end
+
     contents =
       case contents do
         [do: block] ->
