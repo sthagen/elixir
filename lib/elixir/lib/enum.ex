@@ -282,9 +282,9 @@ defmodule Enum do
   @doc """
   Returns `true` if `fun.(element)` is truthy for all elements in `enumerable`.
 
-  Iterates over the `enumerable` and invokes `fun` on each element. When an invocation
-  of `fun` returns a falsy value (`false` or `nil`) iteration stops immediately and
-  `false` is returned. In all other cases `true` is returned.
+  Iterates over `enumerable` and invokes `fun` on each element. If `fun` ever
+  returns a falsy value (`false` or `nil`), iteration stops immediately and
+  `false` is returned. Otherwise, `true` is returned.
 
   ## Examples
 
@@ -294,8 +294,13 @@ defmodule Enum do
       iex> Enum.all?([2, 3, 4], fn x -> rem(x, 2) == 0 end)
       false
 
-      iex> Enum.all?([], fn x -> x > 0 end)
+      iex> Enum.all?([], fn _ -> nil end)
       true
+
+  As the last example shows, `Enum.all?/2` returns `true` if `enumerable` is
+  empty, regardless of `fun`. In an empty enumerable there is no element for
+  which `fun` returns a falsy value, so the result must be `true`. This is a
+  well-defined logical argument for empty collections.
 
   If no function is given, the truthiness of each element is checked during iteration.
   When an element has a falsy value (`false` or `nil`) iteration stops immediately and
@@ -2277,7 +2282,7 @@ defmodule Enum do
   operation cannot be expressed by any of the functions in the `Enum`
   module, developers will most likely resort to `reduce/3`.
   """
-  @spec reduce(t, any, (element, acc -> acc)) :: acc
+  @spec reduce(t, acc, (element, acc -> acc)) :: acc
   def reduce(enumerable, acc, fun) when is_list(enumerable) do
     :lists.foldl(fun, acc, enumerable)
   end
@@ -2535,7 +2540,7 @@ defmodule Enum do
   @spec slice(t, Range.t()) :: list
   def slice(enumerable, index_range)
 
-  def slice(enumerable, first..last) when last >= first and last >= 0 do
+  def slice(enumerable, first..last) when last >= first and last >= 0 and first >= 0 do
     slice_any(enumerable, first, last - first + 1)
   end
 
