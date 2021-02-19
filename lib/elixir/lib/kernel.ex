@@ -127,19 +127,19 @@ defmodule Kernel do
   Elixir documentation also includes supporting documents under the
   "Pages" section. Those are:
 
-    * [Compatibility and Deprecations](compatibility-and-deprecations.md) - lists
+    * [Compatibility and deprecations](compatibility-and-deprecations.md) - lists
       compatibility between every Elixir version and Erlang/OTP, release schema;
       lists all deprecated functions, when they were deprecated and alternatives
-    * [Library Guidelines](library-guidelines.md) - general guidelines, anti-patterns,
+    * [Library guidelines](library-guidelines.md) - general guidelines, anti-patterns,
       and rules for those writing libraries
-    * [Naming Conventions](naming-conventions.md) - naming conventions for Elixir code
+    * [Naming conventions](naming-conventions.md) - naming conventions for Elixir code
     * [Operators](operators.md) - lists all Elixir operators and their precedences
-    * [Patterns and Guards](patterns-and-guards.md) - an introduction to patterns,
+    * [Patterns and guards](patterns-and-guards.md) - an introduction to patterns,
       guards, and extensions
-    * [Syntax Reference](syntax-reference.md) - the language syntax reference
+    * [Syntax reference](syntax-reference.md) - the language syntax reference
     * [Typespecs](typespecs.md)- types and function specifications, including list of types
-    * [Unicode Syntax](unicode-syntax.md) - outlines Elixir support for Unicode
-    * [Writing Documentation](writing-documentation.md) - guidelines for writing
+    * [Unicode syntax](unicode-syntax.md) - outlines Elixir support for Unicode
+    * [Writing documentation](writing-documentation.md) - guidelines for writing
       documentation in Elixir
 
   ## Guards
@@ -156,7 +156,7 @@ defmodule Kernel do
   or equal to 16. Guards also support joining multiple conditions with
   `and` and `or`. The whole guard is true if all guard expressions will
   evaluate to `true`. A more complete introduction to guards is available
-  [in the "Patterns and Guards" page](patterns-and-guards.md).
+  in the [Patterns and guards](patterns-and-guards.md) page.
 
   ## Structural comparison
 
@@ -223,7 +223,7 @@ defmodule Kernel do
 
   Some of the functions described in this module are inlined by
   the Elixir compiler into their Erlang counterparts in the
-  [`:erlang` module](http://www.erlang.org/doc/man/erlang.html).
+  [`:erlang`](`:erlang`) module.
   Those functions are called BIFs (built-in internal functions)
   in Erlang-land and they exhibit interesting properties, as some
   of them are allowed in guards and others are used for compiler
@@ -2373,7 +2373,7 @@ defmodule Kernel do
   defmacro is_struct(term, name) do
     case __CALLER__.context do
       nil ->
-        quote do
+        quote generated: true do
           case unquote(name) do
             name when is_atom(name) ->
               case unquote(term) do

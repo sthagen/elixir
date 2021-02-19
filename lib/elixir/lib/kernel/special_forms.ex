@@ -365,8 +365,8 @@ defmodule Kernel.SpecialForms do
       ERL_COMPILER_OPTIONS=bin_opt_info mix compile
 
   To learn more about specific optimizations and performance considerations,
-  check out
-  [Erlang's Efficiency Guide on handling binaries](http://www.erlang.org/doc/efficiency_guide/binaryhandling.html).
+  check out the
+  ["Constructing and matching binaries" chapter of the Erlang's Efficiency Guide](https://erlang.org/doc/efficiency_guide/binaryhandling.html).
   """
   defmacro unquote(:<<>>)(args), do: error!([args])
 
@@ -1550,8 +1550,15 @@ defmodule Kernel.SpecialForms do
       ...> else
       ...>   :error ->
       ...>     {:error, :wrong_data}
+      ...>
+      ...>   _other_error ->
+      ...>     :unexpected_error
       ...> end
       {:error, :wrong_data}
+
+  The `else` block works like a `case` clause: it can have multiple clauses,
+  and the first match will be used. Variables bound inside `with` (such as
+  `width` in this example) are not available in the `else` block.
 
   If an `else` block is used and there are no matching clauses, a `WithClauseError`
   exception is raised.
