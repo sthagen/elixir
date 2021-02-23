@@ -1350,7 +1350,7 @@ defmodule Enum do
   end
 
   @doc """
-  Intersperses `element` between each element of the enumeration.
+  Intersperses `separator` between each element of the enumeration.
 
   ## Examples
 
@@ -1365,13 +1365,20 @@ defmodule Enum do
 
   """
   @spec intersperse(t, element) :: list
-  def intersperse(enumerable, element) do
+  def intersperse(enumerable, separator) when is_list(enumerable) do
+    case enumerable do
+      [] -> []
+      list -> intersperse_non_empty_list(list, separator)
+    end
+  end
+
+  def intersperse(enumerable, separator) do
     list =
       enumerable
-      |> reduce([], fn x, acc -> [x, element | acc] end)
+      |> reduce([], fn x, acc -> [x, separator | acc] end)
       |> :lists.reverse()
 
-    # Head is a superfluous intersperser element
+    # Head is a superfluous separator
     case list do
       [] -> []
       [_ | t] -> t
@@ -1505,6 +1512,10 @@ defmodule Enum do
     enumerable
     |> map(&entry_to_string(&1))
     |> IO.iodata_to_binary()
+  end
+
+  def join(enumerable, joiner) when is_list(enumerable) and is_binary(joiner) do
+    join_list(enumerable, joiner)
   end
 
   def join(enumerable, joiner) when is_binary(joiner) do
@@ -2494,6 +2505,15 @@ defmodule Enum do
 
   """
   @spec scan(t, (element, any -> any)) :: list
+  def scan(enumerable, fun)
+
+  def scan([], _fun), do: []
+
+  def scan([elem | rest], fun) do
+    scanned = scan_list(rest, elem, fun)
+    [elem | scanned]
+  end
+
   def scan(enumerable, fun) do
     {res, _} = reduce(enumerable, {[], :first}, R.scan2(fun))
     :lists.reverse(res)
@@ -2511,6 +2531,10 @@ defmodule Enum do
 
   """
   @spec scan(t, any, (element, any -> any)) :: list
+  def scan(enumerable, acc, fun) when is_list(enumerable) do
+    scan_list(enumerable, acc, fun)
+  end
+
   def scan(enumerable, acc, fun) do
     {res, _} = reduce(enumerable, {[], acc}, R.scan3(fun))
     :lists.reverse(res)
@@ -3722,6 +3746,30 @@ defmodule Enum do
     []
   end
 
+  ## intersperse
+
+  defp intersperse_non_empty_list([head], _separator), do: [head]
+
+  defp intersperse_non_empty_list([head | rest], separator) do
+    [head, separator | intersperse_non_empty_list(rest, separator)]
+  end
+
+  ## join
+
+  defp join_list([], _joiner), do: ""
+
+  defp join_list(list, joiner) do
+    join_non_empty_list(list, joiner, [])
+    |> :lists.reverse()
+    |> IO.iodata_to_binary()
+  end
+
+  defp join_non_empty_list([first], _joiner, acc), do: [entry_to_string(first) | acc]
+
+  defp join_non_empty_list([first | rest], joiner, acc) do
+    join_non_empty_list(rest, joiner, [joiner, entry_to_string(first) | acc])
+  end
+
   ## map_intersperse
 
   defp map_intersperse_list([], _, _),
@@ -3784,6 +3832,15 @@ defmodule Enum do
 
   defp head_slice([elem | rest], count, acc) do
     head_slice(rest, count - 1, [elem | acc])
+  end
+
+  ## scan
+
+  defp scan_list([], _acc, _fun), do: []
+
+  defp scan_list([elem | rest], acc, fun) do
+    acc = fun.(elem, acc)
+    [acc | scan_list(rest, acc, fun)]
   end
 
   ## shuffle
