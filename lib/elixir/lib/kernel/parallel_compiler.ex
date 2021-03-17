@@ -381,7 +381,7 @@ defmodule Kernel.ParallelCompiler do
     # the following order:
     #
     #   1. Code.ensure_compiled/1 checks (deadlock = soft)
-    #   2. Struct checks (deadlock = hard)
+    #   2. Struct/import/require checks (deadlock = hard)
     #   3. Modules without a known definition
     #   4. Code invocation (deadlock = raise)
     #
@@ -457,13 +457,27 @@ defmodule Kernel.ParallelCompiler do
     nillify_empty(
       for %{pid: pid} <- files,
           {_, ^pid, ref, on, _, _} <- List.wrap(List.keyfind(waiting, pid, 1)),
-          not Enum.any?(waiting, fn {_, _, _, _, defining, _} -> on in defining end),
+          not depended?(on, waiting),
           do: {ref, :not_found}
     )
   end
 
   defp deadlocked(waiting, type) do
-    nillify_empty(for {_, _, ref, _, _, ^type} <- waiting, do: {ref, :deadlock})
+    {depended, not_depended} =
+      for {_, _, ref, on, _, ^type} <- waiting, reduce: {[], []} do
+        {depended, not_depended} ->
+          if depended?(on, waiting) do
+            {[{ref, :deadlock} | depended], not_depended}
+          else
+            {depended, [{ref, :deadlock} | not_depended]}
+          end
+      end
+
+    nillify_empty(depended) || nillify_empty(not_depended)
+  end
+
+  defp depended?(on, waiting) do
+    Enum.any?(waiting, fn {_, _, _, _, defining, _} -> on in defining end)
   end
 
   defp nillify_empty([]), do: nil
