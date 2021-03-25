@@ -725,8 +725,8 @@ defmodule Macro do
   and return a version with it unescaped.
   """
   @spec unescape_string(String.t()) :: String.t()
-  def unescape_string(chars) do
-    :elixir_interpolation.unescape_chars(chars)
+  def unescape_string(string) do
+    :elixir_interpolation.unescape_string(string)
   end
 
   @doc ~S"""
@@ -772,25 +772,23 @@ defmodule Macro do
 
   """
   @spec unescape_string(String.t(), (non_neg_integer -> non_neg_integer | false)) :: String.t()
-  def unescape_string(chars, map) do
-    :elixir_interpolation.unescape_chars(chars, map)
+  def unescape_string(string, map) do
+    :elixir_interpolation.unescape_string(string, map)
   end
 
   @doc false
   @deprecated "Traverse over the arguments using Enum.map/2 instead"
   def unescape_tokens(tokens) do
-    case :elixir_interpolation.unescape_tokens(tokens) do
-      {:ok, unescaped_tokens} -> unescaped_tokens
-      {:error, reason} -> raise ArgumentError, to_string(reason)
+    for token <- tokens do
+      if is_binary(token), do: unescape_string(token), else: token
     end
   end
 
   @doc false
   @deprecated "Traverse over the arguments using Enum.map/2 instead"
   def unescape_tokens(tokens, map) do
-    case :elixir_interpolation.unescape_tokens(tokens, map) do
-      {:ok, unescaped_tokens} -> unescaped_tokens
-      {:error, reason} -> raise ArgumentError, to_string(reason)
+    for token <- tokens do
+      if is_binary(token), do: unescape_string(token, map), else: token
     end
   end
 
@@ -971,7 +969,7 @@ defmodule Macro do
 
   def to_string({target, _, args} = ast, fun) when is_list(args) do
     with :error <- unary_call(ast, fun),
-         :error <- binary_call(ast, fun),
+         :error <- op_call(ast, fun),
          :error <- sigil_call(ast, fun) do
       {list, last} = split_last(args)
 
@@ -1145,7 +1143,14 @@ defmodule Macro do
     :error
   end
 
-  defp binary_call({op, _, [left, right]} = ast, fun) when is_atom(op) do
+  defp op_call({:..//, _, [left, middle, right]} = ast, fun) do
+    left = op_to_string(left, fun, :.., :left)
+    middle = op_to_string(middle, fun, :.., :right)
+    right = op_to_string(right, fun, :"//", :right)
+    {:ok, fun.(ast, left <> ".." <> middle <> "//" <> right)}
+  end
+
+  defp op_call({op, _, [left, right]} = ast, fun) when is_atom(op) do
     case Identifier.binary_op(op) do
       {_, _} ->
         left = op_to_string(left, fun, op, :left)
@@ -1158,7 +1163,7 @@ defmodule Macro do
     end
   end
 
-  defp binary_call(_, _) do
+  defp op_call(_, _) do
     :error
   end
 
