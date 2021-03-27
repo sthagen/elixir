@@ -535,11 +535,13 @@ defmodule Kernel do
       hd([1, 2, 3, 4])
       #=> 1
 
-      hd([])
-      ** (ArgumentError) argument error
-
       hd([1 | 2])
       #=> 1
+
+  Giving it an empty list raises:
+
+      tl([])
+      #=> ** (ArgumentError) argument error
 
   """
   @doc guard: true
@@ -1186,9 +1188,6 @@ defmodule Kernel do
       tl([1, 2, 3, :go])
       #=> [2, 3, :go]
 
-      tl([])
-      ** (ArgumentError) argument error
-
       tl([:one])
       #=> []
 
@@ -1197,6 +1196,11 @@ defmodule Kernel do
 
       tl([:a | %{b: 1}])
       #=> %{b: 1}
+
+  Giving it an empty list raises:
+
+      tl([])
+      #=> ** (ArgumentError) argument error
 
   """
   @doc guard: true
@@ -2657,8 +2661,8 @@ defmodule Kernel do
   The `fun` argument receives the value of `key` (or `nil` if `key`
   is not present) and must return one of the following values:
 
-    * a two-element tuple `{get_value, new_value}`. In this case,
-      `get_value` is the retrieved value which can possibly be operated on before
+    * a two-element tuple `{current_value, new_value}`. In this case,
+      `current_value` is the retrieved value which can possibly be operated on before
       being returned. `new_value` is the new value to be stored under `key`.
 
     * `:pop`, which implies that the current value under `key`
@@ -2712,13 +2716,14 @@ defmodule Kernel do
   `Access.key/2`, and others as examples.
   """
   @spec get_and_update_in(
-          structure :: Access.t(),
+          structure,
           keys,
-          (term -> {get_value, update_value} | :pop)
-        ) :: {get_value, structure :: Access.t()}
-        when keys: nonempty_list(any),
-             get_value: var,
-             update_value: term
+          (term | nil -> {current_value, new_value} | :pop)
+        ) :: {current_value, new_structure :: structure}
+        when structure: Access.t(),
+             keys: nonempty_list(any),
+             current_value: Access.value(),
+             new_value: Access.value()
   def get_and_update_in(data, keys, fun)
 
   def get_and_update_in(data, [head], fun) when is_function(head, 3),
@@ -3641,6 +3646,8 @@ defmodule Kernel do
   to last, albeit this behaviour is deprecated. Instead prefer to
   explicitly list the step with `first..last//-1`.
 
+  See the `Range` module for more information.
+
   ## Examples
 
       iex> 0 in 1..3
@@ -3666,7 +3673,7 @@ defmodule Kernel do
   end
 
   defp range(_context, first, last) when is_integer(first) and is_integer(last) do
-    # TODO: Deprecate inferring a range with step of -1 on Elixir v1.16
+    # TODO: Deprecate inferring a range with step of -1 on Elixir v1.17
     step = if first <= last, do: 1, else: -1
     {:%{}, [], [__struct__: Elixir.Range, first: first, last: last, step: step]}
   end
@@ -3676,17 +3683,19 @@ defmodule Kernel do
   end
 
   defp range(:guard, first, last) do
-    # TODO: Deprecate me inside guard when sides are not integers on Elixir v1.16
+    # TODO: Deprecate me inside guard when sides are not integers on Elixir v1.17
     {:%{}, [], [__struct__: Elixir.Range, first: first, last: last, step: nil]}
   end
 
   defp range(:match, first, last) do
-    # TODO: Deprecate me inside match in all occasions (including literals) on Elixir v1.16
+    # TODO: Deprecate me inside match in all occasions (including literals) on Elixir v1.17
     {:%{}, [], [__struct__: Elixir.Range, first: first, last: last]}
   end
 
   @doc """
   Creates a range from `first` to `last` with `step`.
+
+  See the `Range` module for more information.
 
   ## Examples
 
