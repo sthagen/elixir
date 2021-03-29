@@ -1,7 +1,7 @@
 defmodule Range do
   @moduledoc """
   Ranges represent a sequence of zero, one or many, ascending
-  or descending, consecutive integers.
+  or descending integers with a common difference called step.
 
   Ranges are always inclusive and they may have custom steps.
   The most common form of creating and matching on ranges is
@@ -96,7 +96,7 @@ defmodule Range do
   @type last :: integer
   @type step :: pos_integer | neg_integer
   @type t :: %__MODULE__{first: first, last: last, step: step}
-  @type t(first, last) :: %__MODULE__{first: first, last: last}
+  @type t(first, last) :: %__MODULE__{first: first, last: last, step: step}
 
   @doc """
   Creates a new range.
@@ -146,8 +146,8 @@ defmodule Range do
 
   def new(first, last, step) do
     raise ArgumentError,
-          "ranges (first..last//step) expect both sides to be integers and the step to be an integer " <>
-            "different than zero, got: #{inspect(first)}..#{inspect(last)}//#{inspect(step)}"
+          "ranges (first..last//step) expect both sides to be integers and the step to be a " <>
+            "non-zero integer, got: #{inspect(first)}..#{inspect(last)}//#{inspect(step)}"
   end
 
   @doc """
