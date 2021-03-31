@@ -2026,11 +2026,13 @@ defmodule Enum do
   def min_max(enumerable, empty_fallback \\ fn -> raise Enum.EmptyError end)
 
   def min_max(first..last//step = range, empty_fallback) when is_function(empty_fallback, 0) do
-    if Range.empty?(range) do
-      empty_fallback.()
-    else
-      last = last - rem(last - first, step)
-      {Kernel.min(first, last), Kernel.max(first, last)}
+    case Range.size(range) do
+      0 ->
+        empty_fallback.()
+
+      _ ->
+        last = last - rem(last - first, step)
+        {Kernel.min(first, last), Kernel.max(first, last)}
     end
   end
 
@@ -2221,19 +2223,17 @@ defmodule Enum do
 
   ## Examples
 
-  The examples below use the `:exrop` pseudorandom algorithm since it's
-  the default from Erlang/OTP 20, however if you are using Erlang/OTP 22
-  or above then `:exsss` is the default algorithm. If you are using `:exsplus`,
-  then please update, as this algorithm is deprecated since Erlang/OTP 20.
+  The examples below use the `:exsss` pseudorandom algorithm since it's
+  the default from Erlang/OTP 22:
 
       # Although not necessary, let's seed the random algorithm
-      iex> :rand.seed(:exrop, {101, 102, 103})
-      iex> Enum.random([1, 2, 3])
-      3
+      iex> :rand.seed(:exsss, {100, 101, 102})
       iex> Enum.random([1, 2, 3])
       2
+      iex> Enum.random([1, 2, 3])
+      1
       iex> Enum.random(1..1_000)
-      846
+      309
 
   """
   @spec random(t) :: element
@@ -2549,17 +2549,15 @@ defmodule Enum do
 
   ## Examples
 
-  The examples below use the `:exrop` pseudorandom algorithm since it's
-  the default from Erlang/OTP 20, however if you are using Erlang/OTP 22
-  or above then `:exsss` is the default algorithm. If you are using `:exsplus`,
-  then please update, as this algorithm is deprecated since Erlang/OTP 20.
+  The examples below use the `:exsss` pseudorandom algorithm since it's
+  the default from Erlang/OTP 22:
 
       # Although not necessary, let's seed the random algorithm
-      iex> :rand.seed(:exrop, {1, 2, 3})
+      iex> :rand.seed(:exsss, {1, 2, 3})
       iex> Enum.shuffle([1, 2, 3])
-      [3, 1, 2]
+      [3, 2, 1]
       iex> Enum.shuffle([1, 2, 3])
-      [1, 3, 2]
+      [2, 1, 3]
 
   """
   @spec shuffle(t) :: list
@@ -3146,11 +3144,11 @@ defmodule Enum do
   ## Examples
 
       # Although not necessary, let's seed the random algorithm
-      iex> :rand.seed(:exrop, {1, 2, 3})
+      iex> :rand.seed(:exsss, {1, 2, 3})
       iex> Enum.take_random(1..10, 2)
-      [7, 2]
+      [3, 1]
       iex> Enum.take_random(?a..?z, 5)
-      'hypnt'
+      'mikel'
 
   """
   @spec take_random(t, non_neg_integer) :: list
@@ -3611,15 +3609,17 @@ defmodule Enum do
   end
 
   defp aggregate(first..last//step = range, fun, empty) do
-    if Range.empty?(range) do
-      empty.()
-    else
-      last = last - rem(last - first, step)
+    case Range.size(range) do
+      0 ->
+        empty.()
 
-      case fun.(first, last) do
-        true -> first
-        false -> last
-      end
+      _ ->
+        last = last - rem(last - first, step)
+
+        case fun.(first, last) do
+          true -> first
+          false -> last
+        end
     end
   end
 

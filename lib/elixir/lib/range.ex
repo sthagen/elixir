@@ -5,9 +5,8 @@ defmodule Range do
 
   Ranges are always inclusive and they may have custom steps.
   The most common form of creating and matching on ranges is
-  via the `start..stop` and `start..stop//step` notations,
-  defined respectively as the `../2` and `..///3` macros
-  auto-imported from `Kernel`:
+  via the [`first..last`](`../2`) and [`first..last//step`](`..///3`)
+  notations, auto-imported from `Kernel`:
 
       iex> Enum.to_list(1..3)
       [1, 2, 3]
@@ -30,10 +29,10 @@ defmodule Range do
       iex> Enum.to_list(0..10//-1)
       []
 
-  When defining a range without steps, the step will be
-  defined based on the start and stop position of the
-  range, If `start >= stop`, it will be an increasing range
-  with step of 1. Otherwise, it is a decreasing range.
+  When defining a range without a step, the step will be
+  defined based on the first and last position of the
+  range, If `first >= last`, it will be an increasing range
+  with a step of 1. Otherwise, it is a decreasing range.
   Note however implicitly decreasing ranges are deprecated.
   Therefore, if you need a decreasing range from `3` to `1`,
   prefer to write `3..1//-1` instead.
@@ -41,14 +40,14 @@ defmodule Range do
   ## Definition
 
   An increasing range `first..last//step` is a range from
-  `first` to `last` increasing by `step` where all values
-  `v` must be `first <= v and v <= last`. Therefore, a range
+  `first` to `last` increasing by `step` where  `step` must be a positive
+  integer and all values `v` must be `first <= v and v <= last`. Therefore, a range
   `10..0//1` is an empty range because there is no value `v`
   that is `10 <= v and v <= 0`.
 
-  Similarly, a decreasing range `first..last//-step` is a range
-  from `first` to `last` decreasing by `step` where all values
-  `v` must be `first >= v and v >= last`. Therefore, a range
+  Similarly, a decreasing range `first..last//step` is a range
+  from `first` to `last` decreasing by `step` where `step` must be a negative
+  integer and  values `v` must be `first >= v and v >= last`. Therefore, a range
   `0..10//-1` is an empty range because there is no value `v`
   that is `0 >= v and v >= 10`.
 
@@ -67,6 +66,10 @@ defmodule Range do
       2
       iex> range.step
       2
+
+  You can access the range fields (`first`, `last`, and `step`)
+  directly but you should not modify nor create ranges by hand.
+  Instead use the proper operators or `new/2` and `new/3`.
 
   A range implements the `Enumerable` protocol, which means
   functions in the `Enum` module can be used to work with
@@ -92,22 +95,21 @@ defmodule Range do
   @enforce_keys [:first, :last, :step]
   defstruct first: nil, last: nil, step: nil
 
-  @type first :: integer
-  @type last :: integer
+  @type limit :: integer
   @type step :: pos_integer | neg_integer
-  @type t :: %__MODULE__{first: first, last: last, step: step}
+  @type t :: %__MODULE__{first: limit, last: limit, step: step}
   @type t(first, last) :: %__MODULE__{first: first, last: last, step: step}
 
   @doc """
   Creates a new range.
 
-  If first is less than last, the range will be increasing from
-  first to last. If first is equal to last, the range will contain
+  If `first` is less than `last`, the range will be increasing from
+  `first` to `last`. If `first` is equal to `last`, the range will contain
   one element, which is the number itself.
 
-  If first is more than last, the range will be decreasing from first
-  to last, albeit this behaviour is deprecated. Instead prefer to
-  explicitly list the step `new/3`.
+  If `first` is greater than `last`, the range will be decreasing from `first`
+  to `last`, albeit this behaviour is deprecated. Therefore, it is advised to
+  explicitly list the step with `new/3`.
 
   ## Examples
 
@@ -115,9 +117,10 @@ defmodule Range do
       -100..100
 
   """
-  @spec new(integer, integer) :: t
+
+  @spec new(limit, limit) :: t
   def new(first, last) when is_integer(first) and is_integer(last) do
-    # TODO: Deprecate inferring a range with step of -1 on Elixir v1.17
+    # TODO: Deprecate inferring a range with a step of -1 on Elixir v1.17
     step = if first <= last, do: 1, else: -1
     %Range{first: first, last: last, step: step}
   end
@@ -129,7 +132,7 @@ defmodule Range do
   end
 
   @doc """
-  Creates a new range with step.
+  Creates a new range with `step`.
 
   ## Examples
 
@@ -138,7 +141,7 @@ defmodule Range do
 
   """
   @doc since: "1.12.0"
-  @spec new(integer, integer, integer) :: t
+  @spec new(limit, limit, step) :: t
   def new(first, last, step)
       when is_integer(first) and is_integer(last) and is_integer(step) and step != 0 do
     %Range{first: first, last: last, step: step}
@@ -151,27 +154,7 @@ defmodule Range do
   end
 
   @doc """
-  Checks if the range is empty.
-
-  ## Examples
-
-      iex> Range.empty?(1..0//1)
-      true
-      iex> Range.empty?(0..1//-1)
-      true
-      iex> Range.empty?(1..0)
-      false
-      iex> Range.empty?(0..1)
-      false
-
-  """
-  @doc since: "1.12.0"
-  def empty?(first..last//step) when step > 0 and first > last, do: true
-  def empty?(first..last//step) when step < 0 and first < last, do: true
-  def empty?(_.._//_), do: false
-
-  @doc """
-  Returns the size of the range.
+  Returns the size of `range`.
 
   ## Examples
 
@@ -197,6 +180,7 @@ defmodule Range do
 
   """
   @doc since: "1.12.0"
+  def size(range)
   def size(first..last//step) when step > 0 and first > last, do: 0
   def size(first..last//step) when step < 0 and first < last, do: 0
   def size(first..last//step), do: abs(div(last - first, step)) + 1
@@ -242,7 +226,7 @@ defmodule Range do
   @doc since: "1.8.0"
   @spec disjoint?(t, t) :: boolean
   def disjoint?(first1..last1//step1 = range1, first2..last2//step2 = range2) do
-    if empty?(range1) or empty?(range2) do
+    if size(range1) == 0 or size(range2) == 0 do
       true
     else
       {first1, last1, step1} = normalize(first1, last1, step1)
@@ -273,7 +257,7 @@ defmodule Range do
     end
   end
 
-  @compile inline: [normalize: 3, empty?: 1]
+  @compile inline: [normalize: 3]
   defp normalize(first, last, step) when first > last, do: {last, first, -step}
   defp normalize(first, last, step), do: {first, last, step}
 
@@ -309,7 +293,7 @@ defimpl Enumerable, for: Range do
 
   def member?(first..last//step = range, value) when is_integer(value) do
     cond do
-      Range.empty?(range) ->
+      Range.size(range) == 0 ->
         {:ok, false}
 
       first <= last ->

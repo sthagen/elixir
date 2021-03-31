@@ -587,6 +587,19 @@ defmodule Mix.Tasks.XrefTest do
       end)
     end
 
+    test "skip project compilation with --no-compile" do
+      in_fixture("no_mixfile", fn ->
+        File.write!("lib/a.ex", """
+        defmodule A do
+          def a, do: :ok
+        end
+        """)
+
+        Mix.Tasks.Xref.run(["graph", "--no-compile"])
+        refute receive_until_no_messages([]) =~ "lib/a.ex"
+      end)
+    end
+
     defp assert_graph(opts \\ [], expected) do
       in_fixture("no_mixfile", fn ->
         File.write!("lib/a.ex", """
