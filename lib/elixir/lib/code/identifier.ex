@@ -83,7 +83,7 @@ defmodule Code.Identifier do
     charlist = Atom.to_charlist(atom)
 
     cond do
-      atom in [:%, :%{}, :{}, :<<>>, :..., :.., :., :..//, :->] ->
+      atom in [:%, :%{}, :{}, :<<>>, :..., :.., :., :"..//", :->] ->
         :not_callable
 
       atom in [:"::", :"//"] ->
@@ -96,7 +96,7 @@ defmodule Code.Identifier do
         :alias
 
       true ->
-        case :elixir_config.get(:identifier_tokenizer, String.Tokenizer).tokenize(charlist) do
+        case :elixir_config.static(:identifier_tokenizer).tokenize(charlist) do
           {kind, _acc, [], _, _, special} ->
             if kind == :identifier and not :lists.member(?@, special) do
               :callable_local
