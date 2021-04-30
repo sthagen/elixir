@@ -2499,6 +2499,9 @@ defmodule Kernel do
 
       iex> 1 |> then(fn x -> x * 2 end)
       2
+
+      iex> 1 |> then(fn x -> Enum.drop(["a", "b", "c"], x) end)
+      ["b", "c"]
   """
   @doc since: "1.12.0"
   defmacro then(value, fun) do
@@ -4036,15 +4039,9 @@ defmodule Kernel do
 
       when x === 1 or x === 2 or x === 3
 
-  When using ranges:
-
-      when x in 1..3
-
-  translates to:
-
-      when is_integer(x) and x >= 1 and x <= 3
-
-  Note that only integers can be considered inside a range by `in`.
+  However, this construct will be inneficient for large lists. In such cases, it
+  is best to stop using guards and use a more appropriate data structure, such
+  as `MapSet`.
 
   ### AST considerations
 
