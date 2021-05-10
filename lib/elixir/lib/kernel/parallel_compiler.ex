@@ -20,9 +20,11 @@ defmodule Kernel.ParallelCompiler do
       file = :erlang.get(:elixir_compiler_file)
       dest = :erlang.get(:elixir_compiler_dest)
       {:error_handler, error_handler} = :erlang.process_info(self(), :error_handler)
+      checker = Module.ParallelChecker.get()
 
       Task.async(fn ->
         send(parent, {:async, self()})
+        Module.ParallelChecker.put(parent, checker)
         :erlang.put(:elixir_compiler_pid, parent)
         :erlang.put(:elixir_compiler_file, file)
         dest != :undefined and :erlang.put(:elixir_compiler_dest, dest)
@@ -146,7 +148,32 @@ defmodule Kernel.ParallelCompiler do
   defp spawn_workers(files, output, options) do
     {:module, _} = :code.ensure_loaded(Kernel.ErrorHandler)
     schedulers = max(:erlang.system_info(:schedulers_online), 2)
-    beam_timestamp = Keyword.get(options, :beam_timestamp)
+    {:ok, checker} = Module.ParallelChecker.start_link(schedulers)
+
+    try do
+      outcome = spawn_workers(schedulers, checker, files, output, options)
+      {outcome, Code.get_compiler_option(:warnings_as_errors)}
+    else
+      {{:ok, _, [_ | _] = warnings}, true} ->
+        message = "Compilation failed due to warnings while using the --warnings-as-errors option"
+        IO.puts(:stderr, message)
+        {:error, warnings, []}
+
+      {{:ok, outcome, warnings}, _} ->
+        beam_timestamp = Keyword.get(options, :beam_timestamp)
+        {:ok, write_module_binaries(outcome, output, beam_timestamp), warnings}
+
+      {{:error, errors, warnings}, true} ->
+        {:error, errors ++ warnings, []}
+
+      {{:error, errors, warnings}, _} ->
+        {:error, errors, warnings}
+    after
+      Module.ParallelChecker.stop(checker)
+    end
+  end
+
+  defp spawn_workers(schedulers, checker, files, output, options) do
     threshold = Keyword.get(options, :long_compilation_threshold, 10) * 1000
     timer_ref = Process.send_after(self(), :threshold_check, threshold)
 
@@ -161,7 +188,8 @@ defmodule Kernel.ParallelCompiler do
         output: output,
         timer_ref: timer_ref,
         long_compilation_threshold: threshold,
-        schedulers: schedulers
+        schedulers: schedulers,
+        checker: checker
       })
 
     Process.cancel_timer(state.timer_ref)
@@ -172,21 +200,7 @@ defmodule Kernel.ParallelCompiler do
       0 -> :ok
     end
 
-    case {outcome, Code.get_compiler_option(:warnings_as_errors)} do
-      {{:ok, _, [_ | _] = warnings}, true} ->
-        message = "Compilation failed due to warnings while using the --warnings-as-errors option"
-        IO.puts(:stderr, message)
-        {:error, warnings, []}
-
-      {{:ok, outcome, warnings}, _} ->
-        {:ok, write_module_binaries(outcome, output, beam_timestamp), warnings}
-
-      {{:error, errors, warnings}, true} ->
-        {:error, errors ++ warnings, []}
-
-      {{:error, errors, warnings}, _} ->
-        {:error, errors, warnings}
-    end
+    outcome
   end
 
   defp each_file(fun) when is_function(fun, 1), do: fn file, _ -> fun.(file) end
@@ -228,32 +242,21 @@ defmodule Kernel.ParallelCompiler do
   end
 
   defp maybe_check_modules(result, runtime_modules, state) do
-    %{schedulers: schedulers, profile: profile} = state
+    %{profile: profile, checker: checker} = state
 
-    if :elixir_config.static(:bootstrap) do
-      []
-    else
-      compiled_modules = checker_compiled_modules(result)
-      runtime_modules = checker_runtime_modules(runtime_modules)
+    compiled_modules =
+      for {{:module, _module}, {_binary, info}} <- result,
+          do: info
 
-      profile_checker(profile, compiled_modules, runtime_modules, fn ->
-        Module.ParallelChecker.verify(compiled_modules, runtime_modules, schedulers)
-      end)
-    end
-  end
+    runtime_modules =
+      for module <- runtime_modules,
+          path = :code.which(module),
+          is_list(path) and path != [],
+          do: {module, path}
 
-  defp checker_compiled_modules(result) do
-    for {{:module, _module}, {binary, module_map}} <- result do
-      {module_map, binary}
-    end
-  end
-
-  defp checker_runtime_modules(modules) do
-    for module <- modules,
-        path = :code.which(module),
-        is_list(path) and path != [] do
-      {module, File.read!(path)}
-    end
+    profile_checker(profile, compiled_modules, runtime_modules, fn ->
+      Module.ParallelChecker.verify(checker, compiled_modules, runtime_modules)
+    end)
   end
 
   defp profile_init(:time), do: {:time, System.monotonic_time(), 0}
@@ -305,12 +308,13 @@ defmodule Kernel.ParallelCompiler do
   end
 
   defp spawn_workers([file | queue], spawned, waiting, files, result, warnings, state) do
-    %{output: output, dest: dest} = state
+    %{output: output, dest: dest, checker: checker} = state
     parent = self()
     file = Path.expand(file)
 
     {pid, ref} =
       :erlang.spawn_monitor(fn ->
+        Module.ParallelChecker.put(parent, checker)
         :erlang.put(:elixir_compiler_pid, parent)
         :erlang.put(:elixir_compiler_file, file)
 
@@ -501,7 +505,7 @@ defmodule Kernel.ParallelCompiler do
         result = Map.put(result, {kind, module}, true)
         spawn_workers(available ++ queue, spawned, waiting, files, result, warnings, state)
 
-      {:module_available, child, ref, file, module, binary, module_map} ->
+      {:module_available, child, ref, file, module, binary, checker_info} ->
         state.each_module.(file, module, binary)
 
         # Release the module loader which is waiting for an ack
@@ -511,7 +515,7 @@ defmodule Kernel.ParallelCompiler do
           for {:module, _, ref, ^module, _defining, _deadlock} <- waiting,
               do: {ref, :found}
 
-        result = Map.put(result, {:module, module}, {binary, module_map})
+        result = Map.put(result, {:module, module}, {binary, checker_info})
         spawn_workers(available ++ queue, spawned, waiting, files, result, warnings, state)
 
       # If we are simply requiring files, we do not add to waiting.
