@@ -191,128 +191,83 @@ defmodule Code.Formatter do
   end
 
   @doc """
-  Converts `string` to an algebra document.
-
-  Returns `{:ok, doc}` or `{:error, parser_error}`.
-
-  See `Code.format_string!/2` for the list of options.
+  Converts the quoted expression into an algebra document.
   """
-  def to_algebra(string, opts \\ []) when is_binary(string) and is_list(opts) do
-    file = Keyword.get(opts, :file, "nofile")
-    line = Keyword.get(opts, :line, 1)
-    charlist = String.to_charlist(string)
+  def to_algebra(quoted, opts \\ []) do
+    comments = Keyword.get(opts, :comments, [])
 
-    Process.put(:code_formatter_comments, [])
+    state =
+      comments
+      |> Enum.map(&format_comment/1)
+      |> gather_comments()
+      |> state(opts)
 
-    tokenizer_options = [
-      unescape: false,
-      preserve_comments: &preserve_comments/5,
-      warn_on_unnecessary_quotes: false
-    ]
+    {doc, _} = block_to_algebra(quoted, @min_line, @max_line, state)
 
-    parser_options = [
-      literal_encoder: &{:ok, {:__block__, &2, [&1]}},
-      token_metadata: true
-    ]
-
-    with {:ok, tokens} <- :elixir.string_to_tokens(charlist, line, 1, file, tokenizer_options),
-         {:ok, forms} <- :elixir.tokens_to_quoted(tokens, file, parser_options) do
-      state =
-        Process.get(:code_formatter_comments)
-        |> Enum.reverse()
-        |> gather_comments()
-        |> state(opts)
-
-      {doc, _} = block_to_algebra(forms, @min_line, @max_line, state)
-      {:ok, doc}
-    end
-  after
-    Process.delete(:code_formatter_comments)
+    doc
   end
 
   @doc """
-  Converts `string` to an algebra document.
-
-  Raises if the `string` cannot be parsed.
-
-  See `Code.format_string!/2` for the list of options.
+  Lists all default locals without parens.
   """
-  def to_algebra!(string, opts \\ []) do
-    case to_algebra(string, opts) do
-      {:ok, doc} ->
-        doc
+  def locals_without_parens do
+    @locals_without_parens
+  end
 
-      {:error, {location, error, token}} ->
-        :elixir_errors.parse_error(location, Keyword.get(opts, :file, "nofile"), error, token)
-    end
+  @doc """
+  Checks if a function is a local without parens.
+  """
+  def local_without_parens?(fun, arity, locals_without_parens) do
+    arity > 0 and
+      Enum.any?(locals_without_parens, fn {key, val} ->
+        key == fun and (val == :* or val == arity)
+      end)
   end
 
   defp state(comments, opts) do
     force_do_end_blocks = Keyword.get(opts, :force_do_end_blocks, false)
-
-    locals_without_parens =
-      Keyword.get(opts, :locals_without_parens, []) ++ @locals_without_parens
+    locals_without_parens = Keyword.get(opts, :locals_without_parens, [])
 
     %{
       force_do_end_blocks: force_do_end_blocks,
-      locals_without_parens: locals_without_parens,
+      locals_without_parens: locals_without_parens ++ locals_without_parens(),
       operand_nesting: 2,
+      skip_eol: false,
       comments: comments
     }
   end
 
-  # Code comment handling
-
-  defp preserve_comments(line, _column, tokens, comment, rest) do
-    comments = Process.get(:code_formatter_comments)
-
-    comment = %{
-      line: line,
-      previous_eol: previous_eol(tokens),
-      next_eol: next_eol(rest, 0),
-      text: format_comment(comment, [])
-    }
-
-    Process.put(:code_formatter_comments, [comment | comments])
+  defp format_comment(%{text: text} = comment) do
+    %{comment | text: format_comment_text(text, "")}
   end
 
-  defp next_eol('\s' ++ rest, count), do: next_eol(rest, count)
-  defp next_eol('\t' ++ rest, count), do: next_eol(rest, count)
-  defp next_eol('\n' ++ rest, count), do: next_eol(rest, count + 1)
-  defp next_eol('\r\n' ++ rest, count), do: next_eol(rest, count + 1)
-  defp next_eol(_, count), do: count
+  defp format_comment_text("##" <> rest, acc), do: format_comment_text("#" <> rest, "#" <> acc)
 
-  defp previous_eol([{token, {_, _, count}} | _])
-       when token in [:eol, :",", :";"] and count > 0 do
-    count
-  end
+  defp format_comment_text("#!", acc), do: reverse_with_prefix(acc, "#!")
+  defp format_comment_text("#! " <> _ = rest, acc), do: reverse_with_prefix(acc, rest)
+  defp format_comment_text("#!" <> rest, acc), do: reverse_with_prefix(acc, "#! " <> rest)
 
-  defp previous_eol([]), do: 1
-  defp previous_eol(_), do: nil
+  defp format_comment_text("#", acc), do: reverse_with_prefix(acc, "#")
+  defp format_comment_text("# " <> _ = rest, acc), do: reverse_with_prefix(acc, rest)
+  defp format_comment_text("#" <> rest, acc), do: reverse_with_prefix(acc, "# " <> rest)
 
-  defp format_comment('##' ++ rest, acc), do: format_comment([?# | rest], [?# | acc])
-
-  defp format_comment('#!', acc), do: reverse_to_string(acc, '#!')
-  defp format_comment('#! ' ++ _ = rest, acc), do: reverse_to_string(acc, rest)
-  defp format_comment('#!' ++ rest, acc), do: reverse_to_string(acc, [?#, ?!, ?\s, rest])
-
-  defp format_comment('#', acc), do: reverse_to_string(acc, '#')
-  defp format_comment('# ' ++ _ = rest, acc), do: reverse_to_string(acc, rest)
-  defp format_comment('#' ++ rest, acc), do: reverse_to_string(acc, [?#, ?\s, rest])
-
-  defp reverse_to_string(acc, prefix) do
-    acc |> Enum.reverse(prefix) |> List.to_string()
+  defp reverse_with_prefix(acc, prefix) do
+    String.reverse(acc) <> prefix
   end
 
   # If there is a no new line before, we can't gather all followup comments.
-  defp gather_comments([%{previous_eol: nil} = comment | comments]) do
-    comment = %{comment | previous_eol: @newlines}
+  defp gather_comments([%{previous_eol_count: 0} = comment | comments]) do
+    comment = %{comment | previous_eol_count: @newlines}
     [comment | gather_comments(comments)]
   end
 
-  defp gather_comments([%{line: line, next_eol: next_eol, text: doc} = comment | comments]) do
-    {next_eol, comments, doc} = gather_followup_comments(line + 1, next_eol, comments, doc)
-    comment = %{comment | next_eol: next_eol, text: doc}
+  defp gather_comments([comment | comments]) do
+    %{line: line, next_eol_count: next_eol_count, text: doc} = comment
+
+    {next_eol_count, comments, doc} =
+      gather_followup_comments(line + 1, next_eol_count, comments, doc)
+
+    comment = %{comment | next_eol_count: next_eol_count, text: doc}
     [comment | gather_comments(comments)]
   end
 
@@ -320,18 +275,14 @@ defmodule Code.Formatter do
     []
   end
 
-  defp gather_followup_comments(
-         line,
-         _,
-         [%{line: line, previous_eol: previous_eol, next_eol: next_eol, text: text} | comments],
-         doc
-       )
-       when previous_eol != nil do
-    gather_followup_comments(line + 1, next_eol, comments, line(doc, text))
+  defp gather_followup_comments(line, _, [%{line: line} = comment | comments], doc)
+       when comment.previous_eol_count != 0 do
+    %{next_eol_count: next_eol_count, text: text} = comment
+    gather_followup_comments(line + 1, next_eol_count, comments, line(doc, text))
   end
 
-  defp gather_followup_comments(_line, next_eol, comments, doc) do
-    {next_eol, comments, doc}
+  defp gather_followup_comments(_line, next_eol_count, comments, doc) do
+    {next_eol_count, comments, doc}
   end
 
   # Special AST nodes from compiler feedback
@@ -540,7 +491,7 @@ defmodule Code.Formatter do
   end
 
   defp quoted_to_algebra({:fn, meta, [_ | _] = clauses}, _context, state) do
-    anon_fun_to_algebra(clauses, line(meta), closing_line(meta), state, eol?(meta))
+    anon_fun_to_algebra(clauses, line(meta), closing_line(meta), state, eol?(meta, state))
   end
 
   defp quoted_to_algebra({fun, meta, args}, context, state) when is_atom(fun) and is_list(args) do
@@ -607,6 +558,11 @@ defmodule Code.Formatter do
       end)
 
     {doc, state}
+  end
+
+  # #PID's and #Ref's may appear on regular AST
+  defp quoted_to_algebra(unknown, _context, state) do
+    {inspect(unknown), state}
   end
 
   ## Blocks
@@ -789,7 +745,7 @@ defmodule Code.Formatter do
           concat(concat(group(left), op_string), group(right))
 
         true ->
-          eol? = eol?(meta)
+          eol? = eol?(meta, state)
 
           next_break_fits? =
             op in @next_break_fits_operators and next_break_fits?(right_arg, state) and not eol?
@@ -931,7 +887,7 @@ defmodule Code.Formatter do
     {docs, comments?, state} =
       quoted_to_algebra_with_comments(operands, acc, min_line, max_line, state, fun)
 
-    if comments? or eol?(meta) do
+    if comments? or eol?(meta, state) do
       {docs |> Enum.reduce(&line(&2, &1)) |> force_unfit(), state}
     else
       {docs |> Enum.reduce(&glue(&2, &1)), state}
@@ -1091,9 +1047,14 @@ defmodule Code.Formatter do
   defp local_to_algebra(fun, meta, args, context, state) when is_atom(fun) do
     skip_parens =
       cond do
-        meta?(meta, :closing) -> :skip_if_only_do_end
-        local_without_parens?(fun, args, state) -> :skip_unless_many_args
-        true -> :skip_if_do_end
+        meta?(meta, :closing) ->
+          :skip_if_only_do_end
+
+        local_without_parens?(fun, length(args), state.locals_without_parens) ->
+          :skip_unless_many_args
+
+        true ->
+          :skip_if_do_end
       end
 
     {{call_doc, state}, wrap_in_parens?} =
@@ -1167,7 +1128,7 @@ defmodule Code.Formatter do
       end
 
     args = if keyword?, do: left ++ right, else: left ++ [right]
-    many_eol? = match?([_, _ | _], args) and eol?(meta)
+    many_eol? = match?([_, _ | _], args) and eol?(meta, state)
     no_generators? = no_generators?(args)
     to_algebra_fun = &quoted_to_algebra(&1, context, &2)
 
@@ -1272,15 +1233,6 @@ defmodule Code.Formatter do
     end
   end
 
-  defp local_without_parens?(fun, args, %{locals_without_parens: locals_without_parens}) do
-    length = length(args)
-
-    length > 0 and
-      Enum.any?(locals_without_parens, fn {key, val} ->
-        key == fun and (val == :* or val == length)
-      end)
-  end
-
   defp no_generators?(args) do
     not Enum.any?(args, &match?({:<-, _, [_, _]}, &1))
   end
@@ -1358,8 +1310,7 @@ defmodule Code.Formatter do
 
   defp list_interpolation_to_algebra([entry | entries], escape, state, acc, last) do
     {{:., _, [Kernel, :to_string]}, _meta, [quoted]} = entry
-    {doc, state} = block_to_algebra(quoted, @max_line, @min_line, state)
-    doc = surround("\#{", doc, "}") |> interpolation_to_string()
+    {doc, state} = interpolation_to_string(quoted, state)
     list_interpolation_to_algebra(entries, escape, state, concat(acc, doc), last)
   end
 
@@ -1375,13 +1326,18 @@ defmodule Code.Formatter do
 
   defp interpolation_to_algebra([entry | entries], escape, state, acc, last) do
     {:"::", _, [{{:., _, [Kernel, :to_string]}, _meta, [quoted]}, {:binary, _, _}]} = entry
-    {doc, state} = block_to_algebra(quoted, @max_line, @min_line, state)
-    doc = surround("\#{", doc, "}") |> interpolation_to_string()
+    {doc, state} = interpolation_to_string(quoted, state)
     interpolation_to_algebra(entries, escape, state, concat(acc, doc), last)
   end
 
   defp interpolation_to_algebra([], _escape, state, acc, last) do
     {concat(acc, last), state}
+  end
+
+  defp interpolation_to_string(quoted, %{skip_eol: skip_eol} = state) do
+    {doc, state} = block_to_algebra(quoted, @max_line, @min_line, %{state | skip_eol: true})
+    doc = interpolation_to_string(surround("\#{", doc, "}"))
+    {doc, %{state | skip_eol: skip_eol}}
   end
 
   defp interpolation_to_string(doc) do
@@ -1433,7 +1389,7 @@ defmodule Code.Formatter do
 
   defp bitstring_to_algebra(meta, args, state) do
     last = length(args) - 1
-    join = if eol?(meta), do: :line, else: :flex_break
+    join = if eol?(meta, state), do: :line, else: :flex_break
     to_algebra_fun = &bitstring_segment_to_algebra(&1, &2, last)
 
     {args_doc, join, state} =
@@ -1501,7 +1457,7 @@ defmodule Code.Formatter do
   ## Literals
 
   defp list_to_algebra(meta, args, state) do
-    join = if eol?(meta), do: :line, else: :break
+    join = if eol?(meta, state), do: :line, else: :break
     fun = &quoted_to_algebra(&1, :parens_arg, &2)
 
     {args_doc, _join, state} =
@@ -1511,7 +1467,7 @@ defmodule Code.Formatter do
   end
 
   defp map_to_algebra(meta, name_doc, [{:|, _, [left, right]}], state) do
-    join = if eol?(meta), do: :line, else: :break
+    join = if eol?(meta, state), do: :line, else: :break
     fun = &quoted_to_algebra(&1, :parens_arg, &2)
     {left_doc, state} = fun.(left, state)
 
@@ -1528,7 +1484,7 @@ defmodule Code.Formatter do
   end
 
   defp map_to_algebra(meta, name_doc, args, state) do
-    join = if eol?(meta), do: :line, else: :break
+    join = if eol?(meta, state), do: :line, else: :break
     fun = &quoted_to_algebra(&1, :parens_arg, &2)
 
     {args_doc, _join, state} =
@@ -1539,7 +1495,7 @@ defmodule Code.Formatter do
   end
 
   defp tuple_to_algebra(meta, args, join, state) do
-    join = if eol?(meta), do: :line, else: join
+    join = if eol?(meta, state), do: :line, else: join
     fun = &quoted_to_algebra(&1, :parens_arg, &2)
 
     {args_doc, join, state} =
@@ -1721,7 +1677,7 @@ defmodule Code.Formatter do
       |> glue(body_doc)
       |> nest(2)
       |> glue("end")
-      |> maybe_force_clauses(clauses)
+      |> maybe_force_clauses(clauses, state)
       |> group()
 
     {doc, state}
@@ -1755,7 +1711,7 @@ defmodule Code.Formatter do
       |> glue(body_doc)
       |> nest(2)
       |> glue("end")
-      |> maybe_force_clauses(clauses)
+      |> maybe_force_clauses(clauses, state)
       |> group()
 
     {doc, state}
@@ -1783,7 +1739,7 @@ defmodule Code.Formatter do
       "(() -> "
       |> concat(nest(body_doc, :cursor))
       |> concat(")")
-      |> maybe_force_clauses(clauses)
+      |> maybe_force_clauses(clauses, state)
       |> group()
 
     {doc, state}
@@ -1804,7 +1760,7 @@ defmodule Code.Formatter do
       |> group()
       |> concat(break() |> concat(body_doc) |> nest(2))
       |> wrap_in_parens()
-      |> maybe_force_clauses(clauses)
+      |> maybe_force_clauses(clauses, state)
       |> group()
 
     {doc, state}
@@ -1823,8 +1779,8 @@ defmodule Code.Formatter do
 
   ## Clauses
 
-  defp maybe_force_clauses(doc, clauses) do
-    if Enum.any?(clauses, fn {:->, meta, _} -> eol?(meta) end) do
+  defp maybe_force_clauses(doc, clauses, state) do
+    if Enum.any?(clauses, fn {:->, meta, _} -> eol?(meta, state) end) do
       force_unfit(doc)
     else
       doc
@@ -1847,7 +1803,7 @@ defmodule Code.Formatter do
         {doc_acc, state_acc}
       end)
 
-    {clauses_doc |> maybe_force_clauses([clause | clauses]) |> group(), state}
+    {clauses_doc |> maybe_force_clauses([clause | clauses], state) |> group(), state}
   end
 
   defp clauses_to_algebra(other, min_line, max_line, state) do
@@ -1959,7 +1915,7 @@ defmodule Code.Formatter do
   end
 
   defp extract_comments_before(max, acc, [%{line: line} = comment | rest], _) when line < max do
-    %{previous_eol: previous, next_eol: next, text: doc} = comment
+    %{previous_eol_count: previous, next_eol_count: next, text: doc} = comment
     acc = [{doc, @empty, next} | add_previous_to_acc(acc, previous)]
     extract_comments_before(max, acc, rest, true)
   end
@@ -2188,8 +2144,8 @@ defmodule Code.Formatter do
     false
   end
 
-  defp eol_or_comments?(meta, %{comments: comments}) do
-    eol?(meta) or
+  defp eol_or_comments?(meta, %{comments: comments} = state) do
+    eol?(meta, state) or
       (
         min_line = line(meta)
         max_line = closing_line(meta)
@@ -2237,7 +2193,7 @@ defmodule Code.Formatter do
   end
 
   defp force_args?(args) do
-    match?([_, _ | _], args) and force_args?(args, MapSet.new())
+    match?([_ | _], args) and force_args?(args, %{})
   end
 
   defp force_args?([[arg | _] | args], lines) do
@@ -2247,18 +2203,19 @@ defmodule Code.Formatter do
   defp force_args?([arg | args], lines) do
     line =
       case arg do
-        {{_, meta, _}, _} -> line(meta)
-        {_, meta, _} -> line(meta)
+        {{_, meta, _}, _} -> meta[:line]
+        {_, meta, _} -> meta[:line]
       end
 
-    if MapSet.member?(lines, line) do
-      false
-    else
-      force_args?(args, MapSet.put(lines, line))
+    cond do
+      # Line may be missing from non-formatter AST
+      is_nil(line) -> force_args?(args, lines)
+      Map.has_key?(lines, line) -> false
+      true -> force_args?(args, Map.put(lines, line, true))
     end
   end
 
-  defp force_args?([], _lines), do: true
+  defp force_args?([], lines), do: map_size(lines) >= 2
 
   defp force_keyword(doc, arg) do
     if force_args?(arg), do: force_unfit(doc), else: doc
@@ -2276,9 +2233,8 @@ defmodule Code.Formatter do
   defp keyword_key?(_),
     do: false
 
-  defp eol?(meta) do
-    Keyword.get(meta, :newlines, 0) > 0
-  end
+  defp eol?(_meta, %{skip_eol: true}), do: false
+  defp eol?(meta, _state), do: Keyword.get(meta, :newlines, 0) > 0
 
   defp meta?(meta, key) do
     is_list(meta[key])

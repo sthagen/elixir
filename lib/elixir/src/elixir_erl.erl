@@ -114,7 +114,7 @@ compile(#{module := Module, line := Line} = Map) ->
   {Set, Bag} = elixir_module:data_tables(Module),
 
   TranslatedTypespecs =
-    case elixir_config:static(bootstrap) andalso
+    case elixir_config:is_bootstrap() andalso
           (code:ensure_loaded(?typespecs) /= {module, ?typespecs}) of
       true -> {[], [], [], [], []};
       false -> ?typespecs:translate_typespecs_for_module(Set, Bag)
@@ -531,7 +531,7 @@ signature_to_binary(_Module, Name, _Signature) when Name == '__aliases__'; Name 
   <<(atom_to_binary(Name, utf8))/binary, "(args)">>;
 
 signature_to_binary(_Module, fn, _Signature) ->
-  <<"fn">>;
+  <<"fn(clauses)">>;
 
 signature_to_binary(_Module, Name, _Signature)
     when Name == '__CALLER__'; Name == '__DIR__'; Name == '__ENV__';
@@ -545,7 +545,7 @@ signature_to_binary(Module, '__struct__', []) ->
   <<"%", ('Elixir.Kernel':inspect(Module))/binary, "{}">>;
 
 signature_to_binary(_, Name, Signature) ->
-  'Elixir.Macro':to_string({Name, [], Signature}).
+  'Elixir.Macro':to_string({Name, [{closing, []}], Signature}).
 
 checker_chunk(#{definitions := Definitions, deprecated := Deprecated, is_behaviour := IsBehaviour}) ->
   DeprecatedMap = maps:from_list(Deprecated),

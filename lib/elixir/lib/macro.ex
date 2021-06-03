@@ -812,6 +812,25 @@ defmodule Macro do
   @doc """
   Converts the given expression AST to a string.
 
+  This function discards all formatting of the original code.
+  See `Code.quoted_to_algebra/2` as a lower level function
+  with more control around formatting.
+
+  ## Examples
+
+      iex> Macro.to_string(quote(do: foo.bar(1, 2, 3)))
+      "foo.bar(1, 2, 3)"
+
+  """
+  @spec to_string(t()) :: String.t()
+  def to_string(tree) do
+    doc = Inspect.Algebra.format(Code.quoted_to_algebra(tree), :infinity)
+    IO.iodata_to_binary(doc)
+  end
+
+  @doc """
+  Converts the given expression AST to a string.
+
   The given `fun` is called for every node in the AST with two arguments: the
   AST of the node being printed and the string representation of that same
   node. The return value of this function is used as the final string
@@ -821,19 +840,17 @@ defmodule Macro do
 
   ## Examples
 
-      iex> Macro.to_string(quote(do: foo.bar(1, 2, 3)))
-      "foo.bar(1, 2, 3)"
-
-      iex> Macro.to_string(quote(do: 1 + 2), fn
-      ...>   1, _string -> "one"
-      ...>   2, _string -> "two"
-      ...>   _ast, string -> string
-      ...> end)
-      "one + two"
+      Macro.to_string(quote(do: 1 + 2), fn
+        1, _string -> "one"
+        2, _string -> "two"
+        _ast, string -> string
+      end)
+      #=> "one + two"
 
   """
+  @deprecated "Use Macro.to_string/1 instead"
   @spec to_string(t(), (t(), String.t() -> String.t())) :: String.t()
-  def to_string(tree, fun \\ fn _ast, string -> string end)
+  def to_string(tree, fun)
 
   # Variables
   def to_string({var, _, context} = ast, fun) when is_atom(var) and is_atom(context) do
@@ -1585,7 +1602,7 @@ defmodule Macro do
   @doc """
   Returns `true` if the given quoted expression represents a quoted literal.
 
-  Atoms, numbers, and functions are always literals. Binaries, lists, tuples,
+  Atoms and numbers are always literals. Binaries, lists, tuples,
   maps, and structs are only literals if all of their terms are also literals.
 
   ## Examples
@@ -1622,7 +1639,7 @@ defmodule Macro do
   def quoted_literal?(list) when is_list(list), do: Enum.all?(list, &quoted_literal?/1)
 
   def quoted_literal?(term),
-    do: is_atom(term) or is_number(term) or is_binary(term) or is_function(term)
+    do: is_atom(term) or is_number(term) or is_binary(term)
 
   @doc """
   Receives an AST node and expands it until it can no longer
@@ -1751,9 +1768,6 @@ defmodule Macro do
 
   defp do_camelize(<<?_, h, t::binary>>) when h >= ?a and h <= ?z,
     do: <<to_upper_char(h)>> <> do_camelize(t)
-
-  defp do_camelize(<<p, ?_, h, t::binary>>) when p >= ?0 and p <= ?9 and h >= ?0 and h <= ?9,
-    do: <<p, ?_, h>> <> do_camelize(t)
 
   defp do_camelize(<<?_, h, t::binary>>) when h >= ?0 and h <= ?9, do: <<h>> <> do_camelize(t)
   defp do_camelize(<<?_>>), do: <<>>

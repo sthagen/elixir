@@ -43,8 +43,8 @@ defmodule Code do
   are loaded as needed. In embedded mode the opposite happens, as all
   modules need to be loaded upfront or explicitly.
 
-  You can use `ensure_loaded/1` (as well as `ensure_lodead?/1` and
-  `ensure_lodead!/1`) to check if a module is loaded before using it and
+  You can use `ensure_loaded/1` (as well as `ensure_loaded?/1` and
+  `ensure_loaded!/1`) to check if a module is loaded before using it and
   act.
 
   ## `ensure_compiled/1` and `ensure_compiled!/1`
@@ -815,12 +815,14 @@ defmodule Code do
   if you do:
 
       case very_long_expression() do
+      end
 
   And only the `do` keyword is above the line length, Elixir **will not**
   emit this:
 
       case very_long_expression()
       do
+      end
 
   So it prefers to not touch the line at all and leave `do` above the
   line limit.
@@ -980,8 +982,25 @@ defmodule Code do
   @spec format_string!(binary, keyword) :: iodata
   def format_string!(string, opts \\ []) when is_binary(string) and is_list(opts) do
     line_length = Keyword.get(opts, :line_length, 98)
-    algebra = Code.Formatter.to_algebra!(string, opts)
-    Inspect.Algebra.format(algebra, line_length)
+
+    to_quoted_opts =
+      [
+        unescape: false,
+        warn_on_unnecessary_quotes: false,
+        literal_encoder: &{:ok, {:__block__, &2, [&1]}},
+        token_metadata: true
+      ] ++ opts
+
+    {forms, comments} = string_to_quoted_with_comments!(string, to_quoted_opts)
+
+    to_algebra_opts =
+      [
+        comments: comments
+      ] ++ opts
+
+    doc = Code.Formatter.to_algebra(forms, to_algebra_opts)
+
+    Inspect.Algebra.format(doc, line_length)
   end
 
   @doc """
@@ -1089,7 +1108,7 @@ defmodule Code do
   ## Options
 
     * `:file` - the filename to be reported in case of parsing errors.
-      Defaults to "nofile".
+      Defaults to `"nofile"`.
 
     * `:line` - the starting line of the string being parsed.
       Defaults to 1.
@@ -1099,6 +1118,13 @@ defmodule Code do
 
     * `:columns` - when `true`, attach a `:column` key to the quoted
       metadata. Defaults to `false`.
+
+    * `:unescape` (since v1.10.0) - when `false`, preserves escaped sequences.
+      For example, `"null byte\\t\\x00"` will be kept as is instead of being
+      converted to a bitstring literal. Note if you set this option to false, the
+      resulting AST is no longer valid, but it can be useful to analyze/transform
+      source code, typically in in combination with `quoted_to_algebra/2`.
+      Defaults to `true`.
 
     * `:existing_atoms_only` - when `true`, raises an error
       when non-existing atoms are found by the tokenizer.
@@ -1182,7 +1208,7 @@ defmodule Code do
   @doc """
   Converts the given string to its quoted form.
 
-  It returns the ast if it succeeds,
+  It returns the AST if it succeeds,
   raises an exception otherwise. The exception is a `TokenMissingError`
   in case a token is missing (usually because the expression is incomplete),
   `SyntaxError` otherwise.
@@ -1198,7 +1224,179 @@ defmodule Code do
   end
 
   @doc """
-  Evals the given file.
+  Converts the given string to its quoted form and a list of comments.
+
+  This function is useful when performing textual changes to the source code,
+  while preserving information like comments and literals position.
+
+  Returns `{:ok, quoted_form, comments}` if it succeeds,
+  `{:error, {line, error, token}}` otherwise.
+
+  Comments are maps with the following fields:
+
+    * `:line` - The line number the source code
+
+    * `:text` - The full text of the comment, including the leading `#`
+
+    * `:previous_eol_count` - How many end of lines there are between the comment and the previous AST node or comment
+
+    * `:next_eol_count` - How many end of lines there are between the comment and the next AST node or comment
+
+  Check `string_to_quoted/2` for options information.
+
+  ## Examples
+
+      iex> Code.string_to_quoted_with_comments("\""
+      ...> :foo
+      ...>
+      ...> # Hello, world!
+      ...>
+      ...>
+      ...> # Some more comments!
+      ...> "\"")
+      {:ok, :foo, [
+        %{line: 3, previous_eol_count: 2, next_eol_count: 3, text: "\# Hello, world!"},
+        %{line: 6, previous_eol_count: 3, next_eol_count: 1, text: "\# Some more comments!"},
+      ]}
+
+      iex> Code.string_to_quoted_with_comments(":foo # :bar")
+      {:ok, :foo, [
+        %{line: 1, previous_eol_count: 0, next_eol_count: 0, text: "\# :bar"}
+      ]}
+
+  """
+  @doc since: "1.13.0"
+  @spec string_to_quoted_with_comments(List.Chars.t(), keyword) ::
+          {:ok, Macro.t(), list(map())} | {:error, {location :: keyword, term, term}}
+  def string_to_quoted_with_comments(string, opts \\ [])
+      when is_binary(string) and is_list(opts) do
+    charlist = to_charlist(string)
+    file = Keyword.get(opts, :file, "nofile")
+    line = Keyword.get(opts, :line, 1)
+    column = Keyword.get(opts, :column, 1)
+
+    Process.put(:code_formatter_comments, [])
+    opts = [preserve_comments: &preserve_comments/5] ++ opts
+
+    with {:ok, tokens} <- :elixir.string_to_tokens(charlist, line, column, file, opts),
+         {:ok, forms} <- :elixir.tokens_to_quoted(tokens, file, opts) do
+      comments = Enum.reverse(Process.get(:code_formatter_comments))
+      {:ok, forms, comments}
+    end
+  after
+    Process.delete(:code_formatter_comments)
+  end
+
+  @doc """
+  Converts the given string to its quoted form and a list of comments.
+
+  Returns the AST and a list of comments if it succeeds, raises an exception
+  otherwise. The exception is a `TokenMissingError` in case a token is missing
+  (usually because the expression is incomplete), `SyntaxError` otherwise.
+
+  Check `string_to_quoted/2` for options information.
+  """
+  @spec string_to_quoted_with_comments!(List.Chars.t(), keyword) :: {Macro.t(), list(map())}
+  def string_to_quoted_with_comments!(string, opts \\ []) do
+    case string_to_quoted_with_comments(string, opts) do
+      {:ok, forms, comments} ->
+        {forms, comments}
+
+      {:error, {location, error, token}} ->
+        :elixir_errors.parse_error(location, Keyword.get(opts, :file, "nofile"), error, token)
+    end
+  end
+
+  defp preserve_comments(line, _column, tokens, comment, rest) do
+    comments = Process.get(:code_formatter_comments)
+
+    comment = %{
+      line: line,
+      previous_eol_count: previous_eol_count(tokens),
+      next_eol_count: next_eol_count(rest, 0),
+      text: List.to_string(comment)
+    }
+
+    Process.put(:code_formatter_comments, [comment | comments])
+  end
+
+  defp next_eol_count('\s' ++ rest, count), do: next_eol_count(rest, count)
+  defp next_eol_count('\t' ++ rest, count), do: next_eol_count(rest, count)
+  defp next_eol_count('\n' ++ rest, count), do: next_eol_count(rest, count + 1)
+  defp next_eol_count('\r\n' ++ rest, count), do: next_eol_count(rest, count + 1)
+  defp next_eol_count(_, count), do: count
+
+  defp previous_eol_count([{token, {_, _, count}} | _])
+       when token in [:eol, :",", :";"] and count > 0 do
+    count
+  end
+
+  defp previous_eol_count([]), do: 1
+  defp previous_eol_count(_), do: 0
+
+  @doc ~S"""
+  Converts a quoted expression to an algebra document using Elixir's formatter rules.
+
+  The algebra document can be converted into a string by calling:
+
+      doc
+      |> Inspect.Algebra.format(:infinity)
+      |> IO.iodata_to_binary()
+
+  For a high-level function that does the same, see `Macro.to_string/1`.
+
+  ## Formatting considerations
+
+  The Elixir AST does not contain metadata for literals like strings, lists, or
+  tuples with two elements, which means that the produced algebra document will
+  not respect all of the user preferences and comments may be misplaced.
+  To get better results, you can use the `:token_metadata`, `:unescape` and
+  `:literal_encoder` options to `string_to_quoted/2` to provide additional
+  information to the formatter:
+
+      [
+        literal_encoder: &{:ok, {:__block__, &2, [&1]}},
+        token_metadata: true,
+        unescape: false
+      ]
+
+  This will produce an AST that contains information such as `do` blocks start
+  and end lines or sigil delimiters, and by wrapping literals in blocks they can
+  now hold metadata like line number, string delimiter and escaped sequences, or
+  integer formatting (such as `0x2a` instead of `47`). However, **note this AST is
+  not valid**. If you evaluate it, it won't have the same semantics as the regular
+  Elixir AST due to the `:unescape` and `:literal_encoder` options. However,
+  those options are useful if you're doing source code manipulation, where it's
+  important to preserve user choices and comments placing.
+
+  ## Options
+
+    * `:comments` - the list of comments associated with the quoted expression.
+      Defaults to `[]`. It is recommended that both `:token_metadata` and
+      `:literal_encoder` options are given to `string_to_quoted_with_comments/2`
+      in order to get proper placement for comments
+
+    * `:escape` - when `true`, escaped sequences like `\n` will be escaped into
+      `\\n`. If the `:unescape` option was set to `false` when using
+      `string_to_quoted/2`, setting this option to `false` will prevent it from
+      escaping the sequences twice. Defaults to `true`.
+
+    * `:locals_without_parens` - a keyword list of name and arity
+      pairs that should be kept without parens whenever possible.
+      The arity may be the atom `:*`, which implies all arities of
+      that name. The formatter already includes a list of functions
+      and this option augments this list.
+  """
+  @doc since: "1.13.0"
+  @spec quoted_to_algebra(Macro.t(), keyword) :: Inspect.Algebra.t()
+  def quoted_to_algebra(quoted, opts \\ []) do
+    quoted
+    |> Code.Normalizer.normalize(opts)
+    |> Code.Formatter.to_algebra(opts)
+  end
+
+  @doc """
+  Evaluates the given file.
 
   Accepts `relative_to` as an argument to tell where the file is located.
 
