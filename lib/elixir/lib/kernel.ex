@@ -554,6 +554,18 @@ defmodule Kernel do
   Returns `true` if `term` is an atom; otherwise returns `false`.
 
   Allowed in guard tests. Inlined by the compiler.
+
+  ## Examples
+
+      iex> is_atom(false)
+      true
+
+      iex> is_atom(:name)
+      true
+
+      iex> is_atom("true")
+      false
+
   """
   @doc guard: true
   @spec is_atom(term) :: boolean
@@ -606,6 +618,18 @@ defmodule Kernel do
   a boolean); otherwise returns `false`.
 
   Allowed in guard tests. Inlined by the compiler.
+
+  ## Examples
+
+      iex> is_boolean(false)
+      true
+
+      iex> is_boolean(true)
+      true
+
+      iex> is_boolean(:test)
+      false
+
   """
   @doc guard: true
   @spec is_boolean(term) :: boolean
@@ -628,6 +652,15 @@ defmodule Kernel do
   Returns `true` if `term` is a function; otherwise returns `false`.
 
   Allowed in guard tests. Inlined by the compiler.
+
+  ## Examples
+
+      iex> is_function(fn x -> x + x end)
+      true
+
+      iex> is_function("not a function")
+      false
+
   """
   @doc guard: true
   @spec is_function(term) :: boolean
@@ -5587,7 +5620,7 @@ defmodule Kernel do
     quote(do: List.to_charlist(unquote(unescape_list_tokens(pieces))))
   end
 
-  @doc """
+  @doc ~S"""
   Handles the sigil `~r` for regular expressions.
 
   It returns a regular expression pattern, unescaping characters and replacing
@@ -5597,12 +5630,15 @@ defmodule Kernel do
 
   ## Examples
 
-      iex> Regex.match?(~r(foo), "foo")
+      iex> Regex.match?(~r/foo/, "foo")
       true
 
       iex> Regex.match?(~r/a#{:b}c/, "abc")
       true
 
+  While the `~r` sigil allows parens and brackets to be used as delimiters,
+  it is preferred to use `"` or `/` to avoid escaping conflicts with reserved
+  regex characters.
   """
   defmacro sigil_r(term, modifiers)
 

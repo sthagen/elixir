@@ -11,24 +11,22 @@ defmodule Mix.Tasks.Xref do
   @moduledoc """
   Prints cross reference information between modules.
 
-  This task is automatically reenabled, so you can print information
-  multiple times in the same Mix invocation.
-
-  ## Xref modes
-
   The `xref` task expects a mode as first argument:
 
       mix xref MODE
 
   All available modes are discussed below.
 
-  ### callers CALLEE
+  This task is automatically reenabled, so you can print
+  information multiple times in the same Mix invocation.
+
+  ## mix xref callers CALLEE
 
   Prints all callers of the given `MODULE`. Example:
 
       mix xref callers MyMod
 
-  ### graph
+  ## mix xref graph
 
   Prints a file dependency graph where an edge from `A` to `B` indicates
   that `A` (source) depends on `B` (sink).
@@ -41,14 +39,13 @@ defmodule Mix.Tasks.Xref do
 
     * `--label` - only shows relationships with the given label.
       By default, it keeps all labels that are transitive.
-      The labels are "compile", "export" and "runtime". See
-      "Dependencies types" section below
+      The labels are "compile", "export" and "runtime" and
+      there are two additional label modifiers "compile-direct"
+      and "compile-connected". See "Dependencies types" section
+      below.
 
     * `--only-nodes` - only shows the node names (no edges).
       Generally useful with the `--sink` flag
-
-    * `--only-direct` - the `--label` option will restrict itself
-      to only direct dependencies instead of transitive ones
 
     * `--source` - displays all files that the given source file
       references (directly or indirectly)
@@ -81,7 +78,7 @@ defmodule Mix.Tasks.Xref do
   property, for example:
 
       # To get all files and their direct compile time dependencies
-      mix xref graph --label compile --only-direct
+      mix xref graph --label compile-direct
 
       # To get the tree that depend on lib/foo.ex at compile time
       mix xref graph --label compile --sink lib/foo.ex
@@ -98,11 +95,29 @@ defmodule Mix.Tasks.Xref do
       # To limit statistics only to certain labels
       mix xref graph --format stats --label compile
 
-  #### Understanding the printed graph
+  ### Understanding the printed graph
 
   When `mix xref graph` runs, it will print a tree of the following
-  format:
+  format. Imagine the following code:
 
+      # lib/a.ex
+      defmodule A do
+        IO.puts B.hello()
+      end
+
+      # lib/b.ex
+      defmodule B do
+        def hello, do: C.world()
+      end
+
+      # lib/c.ex
+      defmodule C do
+        def world, do: "hello world"
+      end
+
+  It will print:
+
+      $ mix xref graph
       lib/a.ex
       `-- lib/b.ex (compile)
           `-- lib/c.ex
@@ -112,10 +127,11 @@ defmodule Mix.Tasks.Xref do
   problematic because if `lib/c.ex` changes, `lib/a.ex` also has to
   recompile due to this indirect compile time dependency.
 
-  The flags `--source` or `--sink` does not change how you read the
-  graph. For example, if we use the `--sink lib/c.ex` flag, we would
-  see the same tree:
+  The flags `--source` or `--sink` filters the graph but does not
+  ultimately change how you read it. For example, if we use the
+  `--sink lib/c.ex` flag, we would see the same tree:
 
+      $ mix xref graph --sink lib/c.ex
       lib/a.ex
       `-- lib/b.ex (compile)
           `-- lib/c.ex
@@ -125,6 +141,7 @@ defmodule Mix.Tasks.Xref do
   `lib/c.ex` but `lib/a.ex` still has an indirect compile time dependency
   on `lib/c.ex` via `lib/b.ex`:
 
+      $ mix xref graph --sink lib/c.ex --label compile
       lib/a.ex
       `-- lib/b.ex (compile)
 
@@ -132,7 +149,7 @@ defmodule Mix.Tasks.Xref do
   find all files that will change once the sink changes, alongside the
   transitive dependencies that will cause said recompilations.
 
-  #### Dependencies types
+  ### Dependencies types
 
   Elixir tracks three types of dependencies between modules: compile,
   exports, and runtime. If a module has a compile time dependency on
@@ -152,11 +169,24 @@ defmodule Mix.Tasks.Xref do
   Runtime dependencies are added whenever you invoke another module
   inside a function. Modules with runtime dependencies do not have
   to be compiled when the callee changes, unless there is a transitive
-  compile or export time dependency between them.
+  compile or export time dependency between them. The option
+  `--label compile-connected` can be used to find such cases.
+
+  Overall, there are two label modifiers: "compile-connected" and
+  "compile-direct". The label modifier "compile-connected" can be
+  used to find files that have at least one compile dependency
+  between them, excluding the compile time dependency itself.
+  "compile-direct" only shows direct compile time dependencies,
+  removing the transitive aspect.
 
   ## Shared options
 
   Those options are shared across all modes:
+
+    * `--fail-above` - generates a failure if the relevant metric is above the
+      given threshold. This metric is the number of references, except for
+      `--format cycles` where it is the number of cycles, and `--format stats`
+      which has none.
 
     * `--include-siblings` - includes dependencies that have `:in_umbrella` set
       to true in the current project in the reports. This can be used to find
@@ -179,13 +209,13 @@ defmodule Mix.Tasks.Xref do
     deps_check: :boolean,
     elixir_version_check: :boolean,
     exclude: :keep,
+    fail_above: :integer,
     format: :string,
     include_siblings: :boolean,
     label: :string,
     only_nodes: :boolean,
-    only_direct: :boolean,
-    sink: :string,
-    source: :string,
+    sink: :keep,
+    source: :keep,
     min_cycle_size: :integer
   ]
 
@@ -235,7 +265,7 @@ defmodule Mix.Tasks.Xref do
   information from. To get the function calls of each child in an umbrella,
   execute the function at the root of each individual application.
   """
-  # TODO: Remove on v2.0
+  # TODO: Deprecate me on v1.14
   @doc deprecated: "Use compilation tracers described in the Code module"
   @spec calls(keyword()) :: [
           %{
@@ -360,17 +390,21 @@ defmodule Mix.Tasks.Xref do
       Mix.shell().info([file, " (", type, ")"])
     end
 
+    check_failure(:references, length(file_callers), opts[:fail_above])
+  end
+
+  defp check_failure(found, count, max_count)
+       when not is_nil(max_count) and count > max_count do
+    Mix.raise("Too many #{found} (found: #{count}, permitted: #{max_count})")
+  end
+
+  defp check_failure(_, _, _) do
     :ok
   end
 
   defp graph(opts) do
-    filter = label_filter(opts[:label])
-
-    {direct_filter, transitive_filter} =
-      if opts[:only_direct], do: {filter, :all}, else: {:all, filter}
-
+    {direct_filter, transitive_filter} = label_filter(opts[:label])
     write_graph(file_references(direct_filter, opts), transitive_filter, opts)
-    :ok
   end
 
   ## Callers
@@ -399,11 +433,13 @@ defmodule Mix.Tasks.Xref do
     |> Enum.flat_map(&[{&1, nil}, {&1, :compile}, {&1, :export}])
   end
 
-  defp label_filter(nil), do: :all
-  defp label_filter("compile"), do: :compile
-  defp label_filter("export"), do: :export
-  defp label_filter("runtime"), do: nil
-  defp label_filter(other), do: Mix.raise("unknown --label #{other}")
+  defp label_filter(nil), do: {:all, :all}
+  defp label_filter("compile"), do: {:all, :compile}
+  defp label_filter("export"), do: {:all, :export}
+  defp label_filter("runtime"), do: {:all, nil}
+  defp label_filter("compile-connected"), do: {:all, :compile_connected}
+  defp label_filter("compile-direct"), do: {:compile, :all}
+  defp label_filter(other), do: Mix.raise("Unknown --label #{other}")
 
   defp file_references(filter, opts) do
     module_sources =
@@ -456,35 +492,42 @@ defmodule Mix.Tasks.Xref do
         into: %{}
   end
 
+  defp get_files(what, opts, file_references) do
+    files = Keyword.get_values(opts, what)
+
+    case files -- Map.keys(file_references) do
+      [_ | _] = missing ->
+        Mix.raise(
+          "#{Macro.camelize(to_string(what))}s could not be found: #{Enum.join(missing, ", ")}"
+        )
+
+      _ ->
+        :ok
+    end
+
+    if files == [], do: nil, else: files
+  end
+
   defp write_graph(file_references, filter, opts) do
     excluded = excluded(opts)
-    source = opts[:source]
-    sink = opts[:sink]
-
-    if source && is_nil(file_references[source]) do
-      Mix.raise("Source could not be found: #{source}")
-    end
-
-    if sink && is_nil(file_references[sink]) do
-      Mix.raise("Sink could not be found: #{sink}")
-    end
+    sources = get_files(:source, opts, file_references)
+    sinks = get_files(:sink, opts, file_references)
 
     file_references =
-      if sink = opts[:sink] do
-        filter_for_sink(file_references, sink, filter)
+      if sinks do
+        filter_for_sinks(file_references, sinks, filter)
       else
         filter_for_source(file_references, filter)
       end
 
     roots =
-      if source = opts[:source] do
-        %{source => nil}
+      if sources do
+        file_to_roots(sources)
       else
         file_references
-        |> Map.delete(opts[:sink])
+        |> Map.drop(sinks || [])
         |> Enum.map(&{elem(&1, 0), nil})
         |> Kernel.--(excluded)
-        |> Map.new()
       end
 
     callback = fn {file, type} ->
@@ -493,47 +536,75 @@ defmodule Mix.Tasks.Xref do
       {{file, type}, Enum.sort(children -- excluded)}
     end
 
-    case opts[:format] do
-      "dot" ->
-        Mix.Utils.write_dot_graph!(
-          "xref_graph.dot",
-          "xref graph",
-          Enum.sort(roots),
-          callback,
-          opts
-        )
+    {found, count} =
+      case opts[:format] do
+        "dot" ->
+          Mix.Utils.write_dot_graph!(
+            "xref_graph.dot",
+            "xref graph",
+            Enum.sort(roots),
+            callback,
+            opts
+          )
 
-        """
-        Generated "xref_graph.dot" in the current directory. To generate a PNG:
+          """
+          Generated "xref_graph.dot" in the current directory. To generate a PNG:
 
-           dot -Tpng xref_graph.dot -o xref_graph.png
+             dot -Tpng xref_graph.dot -o xref_graph.png
 
-        For more options see http://www.graphviz.org/.
-        """
-        |> String.trim_trailing()
-        |> Mix.shell().info()
+          For more options see http://www.graphviz.org/.
+          """
+          |> String.trim_trailing()
+          |> Mix.shell().info()
 
-      "stats" ->
-        print_stats(file_references, opts)
+          {:references, count_references(file_references)}
 
-      "cycles" ->
-        print_cycles(file_references, opts)
+        "stats" ->
+          print_stats(file_references, opts)
+          {:stats, 0}
 
-      _ ->
-        Mix.Utils.print_tree(Enum.sort(roots), callback, opts)
-    end
+        "cycles" ->
+          {:cycles, print_cycles(file_references, opts)}
+
+        other when other in [nil, "plain", "pretty"] ->
+          Mix.Utils.print_tree(Enum.sort(roots), callback, opts)
+
+          {:references, count_references(file_references)}
+
+        other ->
+          Mix.raise("Unknown --format #{other}")
+      end
+
+    check_failure(found, count, opts[:fail_above])
   end
+
+  defp count_references(file_references) do
+    Enum.reduce(file_references, 0, fn {_, refs}, total -> total + length(refs) end)
+  end
+
+  defp connected?([_ | _]), do: true
+  defp connected?(_), do: false
+
+  defp filter_fn(_file_references, :all), do: fn _ -> true end
+
+  defp filter_fn(file_references, :compile_connected) do
+    fn {key, type} -> type == :compile && connected?(file_references[key]) end
+  end
+
+  defp filter_fn(_file_references, filter), do: fn {_, type} -> type == filter end
 
   defp filter_for_source(file_references, :all), do: file_references
 
   defp filter_for_source(file_references, filter) do
+    fun = filter_fn(file_references, filter)
+
     Enum.reduce(file_references, %{}, fn {key, _}, acc ->
-      {children, _} = filter_for_source(file_references, key, %{}, %{}, filter)
+      {children, _} = filter_for_source(file_references, key, %{}, %{}, fun)
       Map.put(acc, key, children |> Map.delete(key) |> Map.to_list())
     end)
   end
 
-  defp filter_for_source(references, key, acc, seen, filter) do
+  defp filter_for_source(references, key, acc, seen, filter_fn) do
     nodes = references[key]
 
     if is_nil(nodes) || seen[key] do
@@ -541,22 +612,26 @@ defmodule Mix.Tasks.Xref do
     else
       seen = Map.put(seen, key, true)
 
-      Enum.reduce(nodes, {acc, seen}, fn {child_key, type}, {acc, seen} ->
-        if type == filter do
+      Enum.reduce(nodes, {acc, seen}, fn {child_key, type} = reference, {acc, seen} ->
+        if filter_fn.(reference) do
           {Map.put(acc, child_key, type), Map.put(seen, child_key, true)}
         else
-          filter_for_source(references, child_key, acc, seen, filter)
+          filter_for_source(references, child_key, acc, seen, filter_fn)
         end
       end)
     end
   end
 
-  defp filter_for_sink(file_references, sink, filter) do
-    fun = if filter == :all, do: fn _ -> true end, else: fn type -> type == filter end
+  defp file_to_roots(files) do
+    Enum.map(files, &{&1, nil})
+  end
+
+  defp filter_for_sinks(file_references, sinks, filter) do
+    fun = filter_fn(file_references, filter)
 
     file_references
     |> invert_references(fn _ -> true end)
-    |> depends_on_sink([{sink, nil}], %{})
+    |> depends_on_sink(file_to_roots(sinks), %{})
     |> invert_references(fun)
   end
 
@@ -574,9 +649,9 @@ defmodule Mix.Tasks.Xref do
 
   defp invert_references(file_references, fun) do
     Enum.reduce(file_references, %{}, fn {file, references}, acc ->
-      Enum.reduce(references, acc, fn {reference, type}, acc ->
-        if fun.(type) do
-          Map.update(acc, reference, [{file, type}], &[{file, type} | &1])
+      Enum.reduce(references, acc, fn {file_reference, type} = reference, acc ->
+        if fun.(reference) do
+          Map.update(acc, file_reference, [{file, type}], &[{file, type} | &1])
         else
           acc
         end
@@ -663,6 +738,7 @@ defmodule Mix.Tasks.Xref do
       case graph |> cycles(opts) |> Enum.sort(:desc) do
         [] ->
           shell.info("No cycles found")
+          0
 
         cycles ->
           shell.info("#{length(cycles)} cycles found. Showing them in decreasing size:\n")
@@ -676,6 +752,8 @@ defmodule Mix.Tasks.Xref do
 
             shell.info("")
           end
+
+          length(cycles)
       end
     end)
   end

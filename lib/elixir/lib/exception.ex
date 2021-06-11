@@ -722,8 +722,8 @@ defmodule ArgumentError do
       cond do
         # Note that args may be an empty list even if they were supplied
         not is_atom(module) and is_atom(function) and args == [] ->
-          "you attempted to apply #{inspect(function)} on #{inspect(module)}. " <>
-            "If you are using apply/3, make sure the module is an atom. " <>
+          "you attempted to apply a function named #{inspect(function)} on #{inspect(module)}. " <>
+            "If you are using Kernel.apply/3, make sure the module is an atom. " <>
             "If you are using the dot syntax, such as map.field or module.function(), " <>
             "make sure the left side of the dot is an atom or a map"
 
@@ -732,11 +732,12 @@ defmodule ArgumentError do
             "Modules (the first argument of apply) must always be an atom"
 
         not is_atom(function) ->
-          "you attempted to apply #{inspect(function)} on module #{inspect(module)}. " <>
-            "Functions (the second argument of apply) must always be an atom"
+          "you attempted to apply a function named #{inspect(function)} on module #{inspect(module)}. " <>
+            "However #{inspect(function)} is not a valid function name. Function names (the second argument " <>
+            "of apply) must always be an atom"
 
         not is_list(args) ->
-          "you attempted to apply #{inspect(function)} on module #{inspect(module)} " <>
+          "you attempted to apply a function named #{inspect(function)} on module #{inspect(module)} " <>
             "with arguments #{inspect(args)}. Arguments (the third argument of apply) must always be a list"
       end
 
@@ -1549,8 +1550,17 @@ defmodule ErlangError do
     {nil, nil, nil}
   end
 
-  @doc false
-  def error_info(erl_exception, stacktrace) do
+  defp error_info(:badarg, [{:erlang, :byte_size, _, _} | _]) do
+    {:ok,
+     """
+       * 1st argument: not a bitstring
+
+     This typically happens when calling Kernel.byte_size/1 with an invalid argument
+     or when performing binary concatenation with <> and one of the arguments is not a binary\
+     """}
+  end
+
+  defp error_info(erl_exception, stacktrace) do
     with [{module, _, args_or_arity, opts} | _] <- stacktrace,
          %{} = error_info <- opts[:error_info] do
       module = Map.get(error_info, :module, module)

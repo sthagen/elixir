@@ -98,27 +98,35 @@ defmodule Mix.Tasks.XrefTest do
   end
 
   describe "mix xref callers MODULE" do
-    test "prints callers of specified Module" do
-      files = %{
-        "lib/a.ex" => """
-        defmodule A do
-          def a, do: :ok
-        end
-        """,
-        "lib/b.ex" => """
-        defmodule B do
-          def b, do: A.a()
-        end
-        """
-      }
-
-      output = """
-      Compiling 2 files (.ex)
-      Generated sample app
-      lib/b.ex (runtime)
+    @callers_files %{
+      "lib/a.ex" => """
+      defmodule A do
+        def a, do: :ok
+      end
+      """,
+      "lib/b.ex" => """
+      defmodule B do
+        def b, do: A.a()
+      end
       """
+    }
 
-      assert_callers("A", files, output)
+    @callers_output """
+    Compiling 2 files (.ex)
+    Generated sample app
+    lib/b.ex (runtime)
+    """
+
+    test "prints callers of specified Module" do
+      assert_callers("A", @callers_files, @callers_output)
+    end
+
+    test "filter by compile-connected label with fail-above" do
+      message = "Too many references (found: 1, permitted: 0)"
+
+      assert_raise Mix.Error, message, fn ->
+        assert_callers(~w[--fail-above 0], "A", @callers_files, @callers_output)
+      end
     end
 
     test "handles aliases" do
@@ -203,14 +211,14 @@ defmodule Mix.Tasks.XrefTest do
       end)
     end
 
-    defp assert_callers(module, files, expected) do
+    defp assert_callers(opts \\ [], module, files, expected) do
       in_fixture("no_mixfile", fn ->
         for {file, contents} <- files do
           File.write!(file, contents)
         end
 
         capture_io(:stderr, fn ->
-          assert Mix.Task.run("xref", ["callers", module]) == :ok
+          assert Mix.Task.run("xref", opts ++ ["callers", module]) == :ok
         end)
 
         assert ^expected = receive_until_no_messages([])
@@ -272,10 +280,39 @@ defmodule Mix.Tasks.XrefTest do
       """)
     end
 
+    test "cycles with `--fail-above`" do
+      message = "Too many cycles (found: 1, permitted: 0)"
+
+      assert_raise Mix.Error, message, fn ->
+        assert_graph(["--format", "cycles", "--fail-above", "0"], """
+        1 cycles found. Showing them in decreasing size:
+
+        Cycle of length 3:
+
+            lib/b.ex
+            lib/a.ex
+            lib/b.ex
+
+        """)
+      end
+    end
+
     test "cycles with min cycle size" do
       assert_graph(["--format", "cycles", "--min-cycle-size", "3"], """
       No cycles found
       """)
+    end
+
+    test "unknown label" do
+      assert_raise Mix.Error, "Unknown --label bad", fn ->
+        assert_graph(["--label", "bad"], "")
+      end
+    end
+
+    test "unknown format" do
+      assert_raise Mix.Error, "Unknown --format bad", fn ->
+        assert_graph(["--format", "bad"], "")
+      end
     end
 
     test "exclude many" do
@@ -324,8 +361,38 @@ defmodule Mix.Tasks.XrefTest do
       """)
     end
 
-    test "filter by compile label with only direct" do
-      assert_graph(~w[--label compile --only-direct], """
+    test "filter by compile-connected label" do
+      assert_graph(~w[--label compile-connected], """
+      lib/a.ex
+      `-- lib/b.ex (compile)
+      lib/b.ex
+      `-- lib/d.ex (compile)
+      lib/c.ex
+      `-- lib/d.ex (compile)
+      lib/d.ex
+      lib/e.ex
+      """)
+    end
+
+    test "filter by compile-connected label with fail-above" do
+      message = "Too many references (found: 3, permitted: 2)"
+
+      assert_raise Mix.Error, message, fn ->
+        assert_graph(~w[--label compile-connected --fail-above 2], """
+        lib/a.ex
+        `-- lib/b.ex (compile)
+        lib/b.ex
+        `-- lib/d.ex (compile)
+        lib/c.ex
+        `-- lib/d.ex (compile)
+        lib/d.ex
+        lib/e.ex
+        """)
+      end
+    end
+
+    test "filter by compile-direct label" do
+      assert_graph(~w[--label compile-direct], """
       lib/a.ex
       `-- lib/b.ex (compile)
       lib/b.ex
@@ -352,28 +419,16 @@ defmodule Mix.Tasks.XrefTest do
       """)
     end
 
-    test "filter by runtime label with only direct" do
-      assert_graph(~w[--label runtime --only-direct], """
-      lib/a.ex
-      lib/b.ex
-      |-- lib/a.ex
-      `-- lib/c.ex
-      lib/c.ex
-      lib/d.ex
-      `-- lib/e.ex
-      lib/e.ex
-      """)
-    end
-
-    test "source" do
-      assert_graph(~w[--source lib/a.ex], """
+    test "sources" do
+      assert_graph(~w[--source lib/a.ex --source lib/c.ex], """
       lib/a.ex
       `-- lib/b.ex (compile)
           |-- lib/a.ex
           |-- lib/c.ex
-          |   `-- lib/d.ex (compile)
-          |       `-- lib/e.ex
           `-- lib/e.ex (compile)
+      lib/c.ex
+      `-- lib/d.ex (compile)
+          `-- lib/e.ex
       """)
     end
 
@@ -386,17 +441,17 @@ defmodule Mix.Tasks.XrefTest do
       """)
     end
 
-    test "source with compile label and only direct" do
-      assert_graph(~w[--source lib/a.ex --label compile --only-direct], """
+    test "source with compile-direct label" do
+      assert_graph(~w[--source lib/a.ex --label compile-direct], """
       lib/a.ex
       `-- lib/b.ex (compile)
           `-- lib/e.ex (compile)
       """)
     end
 
-    test "invalid source" do
-      assert_raise Mix.Error, "Source could not be found: lib/a2.ex", fn ->
-        assert_graph(~w[--source lib/a2.ex], "")
+    test "invalid sources" do
+      assert_raise Mix.Error, "Sources could not be found: lib/a2.ex, lib/a3.ex", fn ->
+        assert_graph(~w[--source lib/a2.ex --source lib/a.ex --source lib/a3.ex], "")
       end
     end
 
@@ -426,8 +481,8 @@ defmodule Mix.Tasks.XrefTest do
       """)
     end
 
-    test "sink with compile label and only direct" do
-      assert_graph(~w[--sink lib/e.ex --label compile --only-direct], """
+    test "sink with compile-direct label" do
+      assert_graph(~w[--sink lib/e.ex --label compile-direct], """
       lib/a.ex
       `-- lib/b.ex (compile)
       lib/b.ex
@@ -435,9 +490,18 @@ defmodule Mix.Tasks.XrefTest do
       """)
     end
 
+    test "multiple sinks" do
+      assert_graph(~w[--sink lib/a.ex --sink lib/c.ex], """
+      lib/b.ex
+      |-- lib/a.ex
+      |   `-- lib/b.ex (compile)
+      `-- lib/c.ex
+      """)
+    end
+
     test "invalid sink" do
-      assert_raise Mix.Error, "Sink could not be found: lib/b2.ex", fn ->
-        assert_graph(~w[--sink lib/b2.ex], "")
+      assert_raise Mix.Error, "Sinks could not be found: lib/b2.ex, lib/b3.ex", fn ->
+        assert_graph(~w[--sink lib/b2.ex --sink lib/b.ex --sink lib/b3.ex], "")
       end
     end
 
