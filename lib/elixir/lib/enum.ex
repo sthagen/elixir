@@ -4,7 +4,7 @@ defprotocol Enumerable do
 
   When you invoke a function in the `Enum` module, the first argument
   is usually a collection that must implement this protocol.
-  For example, the expression `Enum.map([1, 2, 3], &(&1 * 2))` 
+  For example, the expression `Enum.map([1, 2, 3], &(&1 * 2))`
   invokes `Enumerable.reduce/3` to perform the reducing operation that
   builds a mapped list by calling the mapping function `&(&1 * 2)` on
   every element in the collection and consuming the element with an
@@ -598,9 +598,12 @@ defmodule Enum do
 
   """
   @spec concat(t) :: t
-  def concat(enumerables) do
-    fun = &[&1 | &2]
-    enumerables |> reduce([], &reduce(&1, &2, fun)) |> :lists.reverse()
+  def concat(list) when is_list(list) do
+    concat_list(list)
+  end
+
+  def concat(enums) do
+    concat_enum(enums)
   end
 
   @doc """
@@ -625,7 +628,7 @@ defmodule Enum do
   end
 
   def concat(left, right) do
-    concat([left, right])
+    concat_enum([left, right])
   end
 
   @doc """
@@ -3432,7 +3435,7 @@ defmodule Enum do
   """
   @spec zip(t, t) :: [{any, any}]
   def zip(enumerable1, enumerable2) when is_list(enumerable1) and is_list(enumerable2) do
-    zip_list(enumerable1, enumerable2)
+    zip_list(enumerable1, enumerable2, [])
   end
 
   def zip(enumerable1, enumerable2) do
@@ -3505,7 +3508,7 @@ defmodule Enum do
   @spec zip_with(t, t, (enum1_elem :: term, enum2_elem :: term -> term)) :: [term]
   def zip_with(enumerable1, enumerable2, zip_fun)
       when is_list(enumerable1) and is_list(enumerable2) and is_function(zip_fun, 2) do
-    zip_list(enumerable1, enumerable2, zip_fun)
+    zip_with_list(enumerable1, enumerable2, zip_fun)
   end
 
   def zip_with(enumerable1, enumerable2, zip_fun) when is_function(zip_fun, 2) do
@@ -3574,7 +3577,7 @@ defmodule Enum do
   end
 
   @doc """
-  Reduces over all of the given enumerables, halting as soon as any enumerable is 
+  Reduces over all of the given enumerables, halting as soon as any enumerable is
   empty.
 
   The reducer will receive 2 args: a list of elements (one from each enum) and the
@@ -3767,6 +3770,17 @@ defmodule Enum do
 
   defp any_list([], _) do
     false
+  end
+
+  ## concat
+
+  defp concat_list([h | t]) when is_list(h), do: h ++ concat_list(t)
+  defp concat_list([h | t]), do: concat_enum([h | t])
+  defp concat_list([]), do: []
+
+  defp concat_enum(enum) do
+    fun = &[&1 | &2]
+    enum |> reduce([], &reduce(&1, &2, fun)) |> :lists.reverse()
   end
 
   # dedup
@@ -4214,16 +4228,19 @@ defmodule Enum do
 
   ## zip
 
-  defp zip_list(enumerable1, enumerable2) do
-    zip_list(enumerable1, enumerable2, fn x, y -> {x, y} end)
+  defp zip_list([head1 | next1], [head2 | next2], acc) do
+    zip_list(next1, next2, [{head1, head2} | acc])
   end
 
-  defp zip_list([head1 | next1], [head2 | next2], fun) do
-    [fun.(head1, head2) | zip_list(next1, next2, fun)]
+  defp zip_list([], _, acc), do: :lists.reverse(acc)
+  defp zip_list(_, [], acc), do: :lists.reverse(acc)
+
+  defp zip_with_list([head1 | next1], [head2 | next2], fun) do
+    [fun.(head1, head2) | zip_with_list(next1, next2, fun)]
   end
 
-  defp zip_list(_, [], _fun), do: []
-  defp zip_list([], _, _fun), do: []
+  defp zip_with_list(_, [], _fun), do: []
+  defp zip_with_list([], _, _fun), do: []
 
   defp zip_reduce_list([head1 | next1], [head2 | next2], acc, fun) do
     zip_reduce_list(next1, next2, fun.(head1, head2, acc), fun)
