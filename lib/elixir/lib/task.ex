@@ -241,8 +241,8 @@ defmodule Task do
   """
   @type t :: %__MODULE__{
           pid: pid() | nil,
-          ref: reference() | nil,
-          owner: pid() | nil
+          ref: reference(),
+          owner: pid()
         }
 
   defguardp is_timeout(timeout)
@@ -439,6 +439,49 @@ defmodule Task do
     ref = Process.monitor(pid)
     send(pid, {owner, ref})
     %Task{pid: pid, ref: ref, owner: owner}
+  end
+
+  @doc """
+  Starts a task that immediately completes with the given `result`.
+
+  Unlike `async/1`, this task does not spawn a linked process. It can
+  be awaited or yielded like any other task.
+
+  ## Usage
+
+  In some cases, it is useful to create a "completed" task that represents
+  a task that has already run and generated a result. For example, when
+  processing data you may be able to determine that certain inputs are
+  invalid before dispatching them for further processing:
+
+      def process(data) do
+        tasks =
+          for entry <- data do
+            if invalid_input?(entry) do
+              Task.completed({:error, :invalid_input})
+            else
+              Task.async(fn -> further_process(entry) end)
+            end
+          end
+
+        Task.await_many(tasks)
+      end
+
+  In many cases, `Task.completed/1` may be avoided in favor of returning the
+  result directly.  You should generally only require this variant when working
+  with mixed asynchrony, when a group of inputs will be handled partially
+  synchronously and partially asynchronously.
+  """
+  @doc since: "1.13.0"
+  @spec completed(any) :: t
+  def completed(result) do
+    ref = make_ref()
+    owner = self()
+
+    # "complete" the task immediately
+    send(owner, {ref, result})
+
+    %Task{pid: nil, ref: ref, owner: owner}
   end
 
   @doc """

@@ -396,6 +396,8 @@ defmodule EnumTest do
   test "into/2" do
     assert Enum.into([a: 1, b: 2], %{}) == %{a: 1, b: 2}
     assert Enum.into([a: 1, b: 2], %{c: 3}) == %{a: 1, b: 2, c: 3}
+    assert Enum.into(MapSet.new(a: 1, b: 2), %{}) == %{a: 1, b: 2}
+    assert Enum.into(MapSet.new(a: 1, b: 2), %{c: 3}) == %{a: 1, b: 2, c: 3}
     assert Enum.into(%{a: 1, b: 2}, []) == [a: 1, b: 2]
     assert Enum.into(1..3, []) == [1, 2, 3]
     assert Enum.into(["H", "i"], "") == "Hi"
@@ -405,7 +407,7 @@ defmodule EnumTest do
     assert Enum.into([1, 2, 3], [], fn x -> x * 2 end) == [2, 4, 6]
     assert Enum.into([1, 2, 3], "numbers: ", &to_string/1) == "numbers: 123"
 
-    assert_raise FunctionClauseError, fn ->
+    assert_raise MatchError, fn ->
       Enum.into([2, 3], %{a: 1}, & &1)
     end
   end

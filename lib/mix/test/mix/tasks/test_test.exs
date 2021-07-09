@@ -68,12 +68,12 @@ defmodule Mix.Tasks.TestTest do
         assert_stale_run_output("2 tests, 0 failures")
 
         set_all_mtimes()
-        File.touch!("lib/b.ex")
+        force_recompilation("lib/b.ex")
 
         assert_stale_run_output("1 test, 0 failures")
 
         set_all_mtimes()
-        File.touch!("lib/a.ex")
+        force_recompilation("lib/a.ex")
 
         assert_stale_run_output("2 tests, 0 failures")
       end)
@@ -131,8 +131,9 @@ defmodule Mix.Tasks.TestTest do
   describe "--cover" do
     test "reports the coverage of each app's modules in an umbrella" do
       in_fixture("umbrella_test", fn ->
-        output = mix(["test", "--cover"])
-
+        # This fixture by default results in coverage above the default threshold
+        # which should result in an exit status of 0.
+        assert {output, 0} = mix_code(["test", "--cover"])
         assert output =~ "4 tests, 0 failures"
 
         # For bar, we do regular --cover and also test protocols
@@ -159,6 +160,14 @@ defmodule Mix.Tasks.TestTest do
                -----------|--------------------------
                   100.00% | Total
                """
+
+        # We skip a test in bar to force coverage below the default threshold 
+        # which should result in an exit status of 1.
+        assert {_, code} = mix_code(["test", "--cover", "--exclude", "maybe_skip"])
+
+        unless windows?() do
+          assert code == 1
+        end
       end)
     end
 

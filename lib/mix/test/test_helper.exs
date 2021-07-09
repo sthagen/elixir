@@ -153,11 +153,12 @@ defmodule MixTest.Case do
     end
   end
 
-  def os_newline do
-    case :os.type() do
-      {:win32, _} -> "\r\n"
-      _ -> "\n"
-    end
+  if match?({:win32, _}, :os.type()) do
+    def windows?, do: true
+    def os_newline, do: "\r\n"
+  else
+    def windows?, do: false
+    def os_newline, do: "\n"
   end
 
   def mix(args, envs \\ []) when is_list(args) do
@@ -177,6 +178,10 @@ defmodule MixTest.Case do
       :use_stdio,
       :stderr_to_stdout
     ])
+  end
+
+  def force_recompilation(file) do
+    File.write!(file, File.read!(file) <> "\n")
   end
 
   defp mix_executable do
