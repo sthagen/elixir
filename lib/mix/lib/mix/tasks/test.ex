@@ -113,6 +113,9 @@ defmodule Mix.Tasks.Test do
 
     * `--exclude` - excludes tests that match the filter
 
+    * `--exit-status` - use an alternate exit status to use when the test suite
+      fails (default is 2).
+
     * `--export-coverage` - the name of the file to export coverage results to.
       Only has an effect when used with `--cover`
 
@@ -176,7 +179,7 @@ defmodule Mix.Tasks.Test do
       Note that in trace mode test timeouts will be ignored as timeout is set to `:infinity`
 
     * `--warnings-as-errors` - (since v1.12.0) treats warnings as errors and returns a non-zero
-      exit code. This option only applies to test files. To treat warnings as errors during
+      exit status. This option only applies to test files. To treat warnings as errors during
       compilation and during tests, run:
           MIX_ENV=test mix do compile --warnings-as-errors, test --warnings-as-errors
 
@@ -404,7 +407,8 @@ defmodule Mix.Tasks.Test do
     partitions: :integer,
     preload_modules: :boolean,
     warnings_as_errors: :boolean,
-    profile_require: :string
+    profile_require: :string,
+    exit_status: :integer
   ]
 
   @cover [output: "cover", tool: Mix.Tasks.Test.Coverage]
@@ -467,17 +471,13 @@ defmodule Mix.Tasks.Test do
       """)
     end
 
-    # Load ExUnit before we compile anything
+    # Load ExUnit before we compile anything in case we are compiling
+    # helper modules that depend on ExUnit.
     Application.ensure_loaded(:ex_unit)
 
-    old_warnings_as_errors = Code.get_compiler_option(:warnings_as_errors)
-    args = args -- ["--warnings-as-errors"]
-
-    Mix.Task.run("compile", args)
-
-    if opts[:warnings_as_errors] do
-      Code.put_compiler_option(:warnings_as_errors, true)
-    end
+    # --warnings-as-errors in test does not pass down to compile,
+    # if you need this, call compile explicitly before.
+    Mix.Task.run("compile", args -- ["--warnings-as-errors"])
 
     project = Mix.Project.config()
 
@@ -526,45 +526,43 @@ defmodule Mix.Tasks.Test do
 
     display_warn_test_pattern(test_files, test_pattern, matched_test_files, warn_test_pattern)
 
-    result =
-      case CT.require_and_run(matched_test_files, test_paths, opts) do
-        {:ok, %{excluded: excluded, failures: failures, total: total}} ->
-          Mix.shell(shell)
-          cover && cover.()
+    case CT.require_and_run(matched_test_files, test_paths, opts) do
+      {:ok, %{excluded: excluded, failures: failures, total: total}} ->
+        Mix.shell(shell)
+        cover && cover.()
 
-          cond do
-            failures > 0 and opts[:raise] ->
-              raise_with_shell(shell, "\"mix test\" failed")
+        cond do
+          failures > 0 and opts[:raise] ->
+            raise_with_shell(shell, "\"mix test\" failed")
 
-            failures > 0 ->
-              System.at_exit(fn _ -> exit({:shutdown, 1}) end)
+          failures > 0 ->
+            System.at_exit(fn _ ->
+              exit({:shutdown, Keyword.fetch!(ex_unit_opts, :exit_status)})
+            end)
 
-            excluded == total and Keyword.has_key?(opts, :only) ->
-              message = "The --only option was given to \"mix test\" but no test was executed"
-              raise_or_error_at_exit(shell, message, opts)
+          excluded == total and Keyword.has_key?(opts, :only) ->
+            message = "The --only option was given to \"mix test\" but no test was executed"
+            raise_or_error_at_exit(shell, message, opts)
 
-            true ->
-              :ok
-          end
+          true ->
+            :ok
+        end
 
-        :noop ->
-          cond do
-            opts[:stale] ->
-              Mix.shell().info("No stale tests")
+      :noop ->
+        cond do
+          opts[:stale] ->
+            Mix.shell().info("No stale tests")
 
-            files == [] ->
-              Mix.shell().info("There are no tests to run")
+          files == [] ->
+            Mix.shell().info("There are no tests to run")
 
-            true ->
-              message = "Paths given to \"mix test\" did not match any directory/file: "
-              raise_or_error_at_exit(shell, message <> Enum.join(files, ", "), opts)
-          end
+          true ->
+            message = "Paths given to \"mix test\" did not match any directory/file: "
+            raise_or_error_at_exit(shell, message <> Enum.join(files, ", "), opts)
+        end
 
-          :ok
-      end
-
-    Code.put_compiler_option(:warnings_as_errors, old_warnings_as_errors)
-    result
+        :ok
+    end
   end
 
   defp raise_with_shell(shell, message) do
@@ -609,7 +607,8 @@ defmodule Mix.Tasks.Test do
     :slowest,
     :failures_manifest_file,
     :only_test_ids,
-    :test_location_relative_path
+    :test_location_relative_path,
+    :exit_status
   ]
 
   @doc false
@@ -623,6 +622,7 @@ defmodule Mix.Tasks.Test do
       |> filter_opts(:only)
       |> formatter_opts()
       |> color_opts()
+      |> exit_status_opts()
       |> Keyword.take(@option_keys)
       |> default_opts()
 
@@ -762,6 +762,10 @@ defmodule Mix.Tasks.Test do
       :error ->
         opts
     end
+  end
+
+  defp exit_status_opts(opts) do
+    Keyword.put_new(opts, :exit_status, 2)
   end
 
   defp require_test_helper(shell, dir) do
